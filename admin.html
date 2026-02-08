@@ -36,6 +36,17 @@
       .top-bar a:hover {
         text-decoration: underline;
       }
+      .logout-btn {
+        background: none;
+        border: none;
+        color: #9ca3af;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 0;
+      }
+      .logout-btn:hover {
+        text-decoration: underline;
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -82,7 +93,7 @@
           <a href="/create/">Create</a>
         </div>
         <div>
-          <a href="/logout">Log Out</a>
+          <button id="logout-btn" type="button" class="logout-btn">Log out</button>
         </div>
       </div>
 
@@ -163,8 +174,29 @@
         }
       }
 
+      async function setupLogout() {
+        const btn = document.getElementById("logout-btn");
+        if (!btn) return;
+        btn.onclick = async () => {
+          try {
+            await fetch("/logout", { method: "GET", credentials: "include" });
+          } catch (e) {
+            console.error(e);
+          } finally {
+            window.location.href = "/";
+          }
+        };
+      }
+
       loadQuizzes();
+      setupLogout();
     </script>
-  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-</body>
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015"
+      integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ=="
+      data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}'
+      crossorigin="anonymous"
+    ></script>
+  </body>
 </html>
