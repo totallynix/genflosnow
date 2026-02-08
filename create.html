@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Create Quiz</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #050816;
+        color: #e5e7eb;
+      }
+      .container {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 28px;
+        margin-bottom: 16px;
+      }
+      label {
+        display: block;
+        font-size: 14px;
+        margin-top: 12px;
+        margin-bottom: 4px;
+        color: #9ca3af;
+      }
+      input[type="text"],
+      textarea,
+      input[type="number"],
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #1f2937;
+        background: #020617;
+        color: #e5e7eb;
+        font-size: 14px;
+      }
+      textarea {
+        min-height: 80px;
+        resize: vertical;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+      }
+      .row > div {
+        flex: 1;
+      }
+      button {
+        margin-top: 16px;
+        padding: 10px 16px;
+        background: #3b82f6;
+        color: #e5e7eb;
+        border: none;
+        border-radius: 999px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .status {
+        margin-top: 12px;
+        font-size: 14px;
+      }
+      .status.error {
+        color: #f97373;
+      }
+      .status.ok {
+        color: #4ade80;
+      }
+      .top-links {
+        margin-bottom: 16px;
+        font-size: 13px;
+      }
+      .top-links a {
+        color: #9ca3af;
+        text-decoration: none;
+        margin-right: 12px;
+      }
+      .top-links a:hover {
+        text-decoration: underline;
+      }
+      #created-link {
+        margin-top: 6px;
+        font-size: 13px;
+      }
+      #created-link a {
+        color: #60a5fa;
+        text-decoration: none;
+      }
+      #created-link a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="top-links">
+        <a href="/">Home</a>
+      </div>
+
+      <h1>Create New Quiz</h1>
+
+      <form id="create-form">
+        <label>
+          Quiz ID (URL-safe, e.g. <code>wsss-metar-1</code>)
+          <input id="quiz-id" type="text" required />
+        </label>
+
+        <label>
+          Title
+          <input id="quiz-title" type="text" required />
+        </label>
+
+        <label>
+          Description
+          <textarea id="quiz-desc" placeholder="Short description"></textarea>
+        </label>
+
+        <div class="row">
+          <div>
+            <label>
+              Time per question (seconds)
+              <input
+                id="quiz-seconds"
+                type="number"
+                min="1"
+                step="1"
+                value="20"
+                required
+              />
+            </label>
+          </div>
+          <div>
+            <label>
+              Open for play?
+              <select id="quiz-open">
+                <option value="1">Yes</option>
+                <option value="0" selected>No</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>
+              Hidden from public lists?
+              <select id="quiz-hidden">
+                <option value="0" selected>No</option>
+                <option value="1">Yes (direct link/admin only)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <button type="submit" id="create-btn">Create quiz</button>
+        <div id="status" class="status"></div>
+        <div id="created-link"></div>
+      </form>
+    </div>
+
+    <script>
+      const form = document.getElementById("create-form");
+      const statusEl = document.getElementById("status");
+      const btn = document.getElementById("create-btn");
+      const createdLinkEl = document.getElementById("created-link");
+      const quizIdInput = document.getElementById("quiz-id");
+
+      // On space key, insert a dash instead of a space
+      quizIdInput.addEventListener("keydown", (e) => {
+        if (e.key === " ") {
+          e.preventDefault();
+          const start = quizIdInput.selectionStart;
+          const end = quizIdInput.selectionEnd;
+          const value = quizIdInput.value;
+          quizIdInput.value = value.slice(0, start) + "-" + value.slice(end);
+          quizIdInput.selectionStart = quizIdInput.selectionEnd = start + 1;
+        }
+      });
+
+      // Live slugify: lowercase, collapse spaces/dashes, strip invalid chars
+      quizIdInput.addEventListener("input", () => {
+        const raw = quizIdInput.value;
+        const slug = raw
+          .toLowerCase()
+          .replace(/\s+/g, "-") // any remaining spaces -> dash
+          .replace(/[^a-z0-9-_]/g, ""); // only allow a-z, 0-9, - and _
+        if (slug !== raw) {
+          quizIdInput.value = slug;
+          quizIdInput.selectionStart = quizIdInput.selectionEnd = slug.length;
+        }
+      });
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        statusEl.textContent = "";
+        statusEl.className = "status";
+        createdLinkEl.textContent = "";
+        btn.disabled = true;
+
+        const id = quizIdInput.value.trim();
+        const title = document.getElementById("quiz-title").value.trim();
+        const description = document.getElementById("quiz-desc").value.trim();
+        const seconds = parseInt(
+          document.getElementById("quiz-seconds").value,
+          10
+        );
+        const isOpen = document.getElementById("quiz-open").value === "1";
+        const isHidden = document.getElementById("quiz-hidden").value === "1";
+
+        if (!id || !title || !Number.isFinite(seconds)) {
+          statusEl.textContent = "Please fill in all required fields.";
+          statusEl.classList.add("error");
+          btn.disabled = false;
+          return;
+        }
+
+        try {
+          const res = await fetch("/api/quiz", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              quiz: {
+                id,
+                title,
+                description,
+                timeLimitSeconds: seconds,
+                isOpen,
+                isHidden,
+              },
+            }),
+          });
+
+          if (!res.ok) {
+            const txt = await res.text();
+            throw new Error("Create failed " + res.status + " " + txt);
+          }
+
+          const editUrl = `https://genflosnow.com/edit/?id=${encodeURIComponent(
+            id
+          )}`;
+
+          statusEl.textContent = "Created!";
+          statusEl.classList.add("ok");
+          createdLinkEl.innerHTML = `Edit link: <a href="${editUrl}" target="_blank" rel="noopener noreferrer">${editUrl}</a>`;
+
+          form.reset();
+          document.getElementById("quiz-open").value = "0";
+          document.getElementById("quiz-hidden").value = "0";
+          document.getElementById("quiz-seconds").value = "20";
+        } catch (err) {
+          console.error(err);
+          statusEl.textContent = err.message;
+          statusEl.classList.add("error");
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    </script>
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
