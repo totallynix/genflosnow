@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Admin Login</title>
+    <title>Sign up / Log in</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       body {
@@ -15,7 +15,7 @@
       }
       .container {
         max-width: 360px;
-        margin: 60px auto;
+        margin: 40px auto;
         background: #020617;
         border-radius: 12px;
         padding: 24px;
@@ -23,7 +23,11 @@
       }
       h1 {
         font-size: 22px;
-        margin-bottom: 16px;
+        margin-bottom: 8px;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 16px 0 8px;
       }
       label {
         display: block;
@@ -61,47 +65,91 @@
       .status {
         margin-top: 10px;
         font-size: 13px;
+        color: #9ca3af;
       }
       .status.error {
         color: #f97373;
+      }
+      .separator {
+        margin: 20px 0 8px;
+        text-align: center;
+        font-size: 13px;
+        color: #6b7280;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>Admin login</h1>
+      <!-- Login -->
+      <h1>Log in</h1>
       <form id="login-form">
         <label>
           Username
-          <input id="username" type="text" autocomplete="username" required />
+          <input id="login-username" type="text" autocomplete="username" required />
         </label>
         <label>
           Password
           <input
-            id="password"
+            id="login-password"
             type="password"
             autocomplete="current-password"
             required
           />
         </label>
         <button type="submit" id="login-btn">Log in</button>
-        <div id="status" class="status"></div>
+        <div id="login-status" class="status"></div>
+      </form>
+
+      <div class="separator">---------- or ----------</div>
+
+      <!-- Signup -->
+      <h2>Sign up</h2>
+      <form id="signup-form">
+        <label>
+          Username
+          <input id="signup-username" type="text" autocomplete="username" required />
+        </label>
+        <label>
+          Password
+          <input
+            id="signup-password"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
+        </label>
+        <label>
+          Confirm password
+          <input
+            id="signup-confirm"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
+        </label>
+        <button type="submit" id="signup-btn">Create account</button>
+        <div id="signup-status" class="status"></div>
       </form>
     </div>
 
     <script>
-      const form = document.getElementById("login-form");
-      const statusEl = document.getElementById("status");
-      const btn = document.getElementById("login-btn");
+      // LOGIN
+      const loginForm = document.getElementById("login-form");
+      const loginStatusEl = document.getElementById("login-status");
+      const loginBtn = document.getElementById("login-btn");
 
-      form.onsubmit = async (e) => {
+      loginForm.onsubmit = async (e) => {
         e.preventDefault();
-        statusEl.textContent = "";
-        statusEl.className = "status";
-        btn.disabled = true;
+        loginStatusEl.textContent = "";
+        loginStatusEl.className = "status";
+        loginBtn.disabled = true;
 
-        const username = document.getElementById("username").value.trim();
-        const password = document.getElementById("password").value.trim();
+        const username = document
+          .getElementById("login-username")
+          .value.trim();
+        const password = document
+          .getElementById("login-password")
+          .value.trim();
 
         try {
           const res = await fetch("/api/login", {
@@ -110,21 +158,72 @@
             body: JSON.stringify({ username, password }),
           });
 
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
             throw new Error(data.error || "Login failed");
           }
 
-          // on success, go to /admin
-          window.location.href = "/admin/";
+          // Redirect based on role
+          if (data.role === "admin") {
+            window.location.href = "/admin/";
+          } else {
+            window.location.href = "/";
+          }
         } catch (err) {
-          statusEl.textContent = err.message;
-          statusEl.classList.add("error");
+          loginStatusEl.textContent = err.message;
+          loginStatusEl.classList.add("error");
         } finally {
-          btn.disabled = false;
+          loginBtn.disabled = false;
+        }
+      };
+
+      // SIGNUP
+      const signupForm = document.getElementById("signup-form");
+      const signupStatusEl = document.getElementById("signup-status");
+      const signupBtn = document.getElementById("signup-btn");
+
+      signupForm.onsubmit = async (e) => {
+        e.preventDefault();
+        signupStatusEl.textContent = "";
+        signupStatusEl.className = "status";
+        signupBtn.disabled = true;
+
+        const username = document
+          .getElementById("signup-username")
+          .value.trim();
+        const password = document.getElementById("signup-password").value;
+        const confirmPassword = document.getElementById(
+          "signup-confirm"
+        ).value;
+
+        try {
+          const res = await fetch("/api/signup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password, confirmPassword }),
+          });
+
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data.error || "Sign up failed");
+          }
+
+          // Signed up & logged in as user, go back to homepage
+          window.location.href = "/";
+        } catch (err) {
+          signupStatusEl.textContent = err.message;
+          signupStatusEl.classList.add("error");
+        } finally {
+          signupBtn.disabled = false;
         }
       };
     </script>
-  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-</body>
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015"
+      integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ=="
+      data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}'
+      crossorigin="anonymous"
+    ></script>
+  </body>
 </html>
