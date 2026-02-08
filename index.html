@@ -103,7 +103,7 @@
   <body>
     <div class="top-bar">
       <h1>GAHOOT by nix</h1>
-      <a href="/admin/" class="admin-link">Admin</a>
+      <div id="auth-area"></div>
     </div>
 
     <div id="subtitle">
@@ -115,6 +115,37 @@
     <div id="status"></div>
 
     <script>
+      async function renderAuthArea() {
+        const authArea = document.getElementById("auth-area");
+        try {
+          const res = await fetch("/api/me", { cache: "no-store" });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          const user = data.user;
+
+          if (!user) {
+            authArea.innerHTML =
+              '<a href="/login/" class="admin-link">Sign up / Log in</a>';
+            return;
+          }
+
+          const safeName = user.username;
+          const target = user.role === "admin" ? "/admin/" : "/";
+
+          authArea.innerHTML = `
+            <span style="font-size: 14px; margin-right: 8px; color:#9ca3af;">
+              Signed in as <strong>${safeName}</strong>
+            </span>
+            <a href="${target}" class="admin-link" style="margin-right:8px;">Home</a>
+            <a href="/logout" class="admin-link">Log out</a>
+          `;
+        } catch (e) {
+          console.error(e);
+          authArea.innerHTML =
+            '<a href="/login/" class="admin-link">Sign up / Log in</a>';
+        }
+      }
+
       async function loadQuizzes() {
         const listEl = document.getElementById("quiz-list");
         const statusEl = document.getElementById("status");
@@ -171,8 +202,15 @@
         }
       }
 
+      renderAuthArea();
       loadQuizzes();
     </script>
-  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-</body>
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015"
+      integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ=="
+      data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}'
+      crossorigin="anonymous"
+    ></script>
+  </body>
 </html>
