@@ -186,6 +186,7 @@
         e.preventDefault();
         signupStatusEl.textContent = "";
         signupStatusEl.className = "status";
+        signupStatusEl.style.color = "";
         signupBtn.disabled = true;
 
         const username = document
@@ -205,14 +206,22 @@
 
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            throw new Error(data.error || "Sign up failed");
+            throw new Error(data.error || "Sign up failed.");
           }
 
-          // Signed up & logged in as user, go back to homepage
-          window.location.href = "/";
+          // Success: show green text, then redirect
+          signupStatusEl.textContent =
+            "Sign up successful. You will be redirected shortly.";
+          signupStatusEl.className = "status";
+          signupStatusEl.style.color = "#4ade80";
+
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 1200);
         } catch (err) {
           signupStatusEl.textContent = err.message;
-          signupStatusEl.classList.add("error");
+          signupStatusEl.className = "status error";
+          signupStatusEl.style.color = "";
         } finally {
           signupBtn.disabled = false;
         }
