@@ -161,19 +161,29 @@
             <input class="q-text" type="text" value="${q.text || ""}">
           </label>
           <label>Choice A
-            <input class="q-choiceA" type="text" value="${(q.choices && q.choices[0]) || ""}">
+            <input class="q-choiceA" type="text" value="${
+              (q.choices && q.choices[0]) || ""
+            }">
           </label>
           <label>Choice B
-            <input class="q-choiceB" type="text" value="${(q.choices && q.choices[1]) || ""}">
+            <input class="q-choiceB" type="text" value="${
+              (q.choices && q.choices[1]) || ""
+            }">
           </label>
           <label>Choice C
-            <input class="q-choiceC" type="text" value="${(q.choices && q.choices[2]) || ""}">
+            <input class="q-choiceC" type="text" value="${
+              (q.choices && q.choices[2]) || ""
+            }">
           </label>
           <label>Choice D
-            <input class="q-choiceD" type="text" value="${(q.choices && q.choices[3]) || ""}">
+            <input class="q-choiceD" type="text" value="${
+              (q.choices && q.choices[3]) || ""
+            }">
           </label>
           <label>Correct index (0–3)
-            <input class="q-correctIndex" type="number" min="0" max="3" value="${q.correctIndex ?? 0}">
+            <input class="q-correctIndex" type="number" min="0" max="3" value="${
+              q.correctIndex ?? 0
+            }">
           </label>
           <button type="button" class="delete-btn">Delete question</button>
         `;
@@ -233,7 +243,7 @@
             );
             if (!ok) return;
           }
-          window.location.href = "/";
+          window.location.href = "/admin/";
         };
 
         if (!quizId) {
@@ -385,6 +395,12 @@
 
       initEditor();
     </script>
-  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-</body>
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015"
+      integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ=="
+      data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}'
+      crossorigin="anonymous"
+    ></script>
+  </body>
 </html>
