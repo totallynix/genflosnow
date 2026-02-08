@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Edit Quiz</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #050816;
+        color: #e5e7eb;
+      }
+      h1 {
+        font-size: 24px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        margin: 8px 0 2px;
+        color: #9ca3af;
+      }
+      input {
+        display: block;
+        width: 100%;
+        max-width: 480px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #1f2937;
+        background: #020617;
+        color: #e5e7eb;
+        font-size: 14px;
+      }
+      input[type="checkbox"] {
+        width: auto;
+        display: inline-block;
+        margin-right: 6px;
+      }
+      button {
+        padding: 8px 14px;
+        border-radius: 999px;
+        border: none;
+        background: #3b82f6;
+        color: white;
+        font-size: 14px;
+        cursor: pointer;
+        margin-right: 8px;
+      }
+      button.secondary {
+        background: #111827;
+      }
+      #editor-status {
+        font-size: 13px;
+        color: #9ca3af;
+        margin-top: 8px;
+      }
+      .question-block {
+        border: 1px solid #1f2937;
+        padding: 10px;
+        margin-top: 12px;
+        border-radius: 6px;
+        background: #020617;
+      }
+      .question-block h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+      .delete-btn {
+        background: #b91c1c;
+        margin-top: 8px;
+      }
+      .delete-quiz-btn {
+        background: #b91c1c;
+      }
+      #quiz-id-label {
+        font-size: 14px;
+        color: #9ca3af;
+        margin: 0;
+      }
+      #quiz-id-display {
+        font-size: 14px;
+        color: #e5e7eb;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Edit quiz
+      <span id="quiz-id-label"></span>
+      <button type="button" id="delete-quiz-btn" class="delete-quiz-btn">
+        Delete quiz
+      </button>
+    </h1>
+
+    <form id="editor-form">
+      <div>
+        <label>Quiz ID</label>
+        <div id="quiz-id-display"></div>
+      </div>
+
+      <label>
+        Title
+        <input id="edit-title" type="text" />
+      </label>
+
+      <label>
+        Description
+        <input id="edit-description" type="text" />
+      </label>
+
+      <label>
+        Time per question (seconds)
+        <input id="edit-timePerQuestion" type="number" min="1" />
+      </label>
+
+      <label>
+        <input id="edit-isOpen" type="checkbox" />
+        Open for play
+      </label>
+
+      <label>
+        <input id="edit-isHidden" type="checkbox" />
+        Hidden from public lists (direct link and admin only)
+      </label>
+
+      <h2>Questions</h2>
+      <div id="edit-questions"></div>
+      <button type="button" id="add-question-btn" class="secondary">
+        Add question
+      </button>
+
+      <div style="margin-top: 16px">
+        <button type="submit">Save changes</button>
+        <button type="button" id="home-btn" class="secondary">
+          Return to home
+        </button>
+        <span id="editor-status"></span>
+      </div>
+    </form>
+
+    <script>
+      function getQuizIdFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("id");
+      }
+
+      function createQuestionBlock(q, markDirty) {
+        const div = document.createElement("div");
+        div.className = "question-block";
+
+        div.innerHTML = `
+          <h3>Question</h3>
+          <label>Text
+            <input class="q-text" type="text" value="${q.text || ""}">
+          </label>
+          <label>Choice A
+            <input class="q-choiceA" type="text" value="${(q.choices && q.choices[0]) || ""}">
+          </label>
+          <label>Choice B
+            <input class="q-choiceB" type="text" value="${(q.choices && q.choices[1]) || ""}">
+          </label>
+          <label>Choice C
+            <input class="q-choiceC" type="text" value="${(q.choices && q.choices[2]) || ""}">
+          </label>
+          <label>Choice D
+            <input class="q-choiceD" type="text" value="${(q.choices && q.choices[3]) || ""}">
+          </label>
+          <label>Correct index (0–3)
+            <input class="q-correctIndex" type="number" min="0" max="3" value="${q.correctIndex ?? 0}">
+          </label>
+          <button type="button" class="delete-btn">Delete question</button>
+        `;
+
+        div.querySelectorAll("input").forEach((inp) => {
+          inp.addEventListener("input", markDirty);
+          inp.addEventListener("change", markDirty);
+        });
+
+        div.querySelector(".delete-btn").onclick = () => {
+          const ok = confirm("Delete this question? This cannot be undone.");
+          if (!ok) return;
+          div.remove();
+          markDirty();
+        };
+
+        return div;
+      }
+
+      async function initEditor() {
+        const quizId = getQuizIdFromQuery();
+        const titleInput = document.getElementById("edit-title");
+        const descInput = document.getElementById("edit-description");
+        const timePerQuestionInput =
+          document.getElementById("edit-timePerQuestion");
+        const isOpenInput = document.getElementById("edit-isOpen");
+        const isHiddenInput = document.getElementById("edit-isHidden");
+        const questionsContainer = document.getElementById("edit-questions");
+        const statusEl = document.getElementById("editor-status");
+        const form = document.getElementById("editor-form");
+        const addQuestionBtn = document.getElementById("add-question-btn");
+        const idLabel = document.getElementById("quiz-id-label");
+        const idDisplay = document.getElementById("quiz-id-display");
+        const homeBtn = document.getElementById("home-btn");
+        const deleteQuizBtn = document.getElementById("delete-quiz-btn");
+
+        let isDirty = false;
+
+        const markDirty = () => {
+          isDirty = true;
+        };
+
+        const clearDirty = () => {
+          isDirty = false;
+        };
+
+        window.addEventListener("beforeunload", function (e) {
+          if (!isDirty) return;
+          e.preventDefault();
+          e.returnValue = "";
+        });
+
+        homeBtn.onclick = () => {
+          if (isDirty) {
+            const ok = confirm(
+              "You have unsaved changes. Leave this page anyway?"
+            );
+            if (!ok) return;
+          }
+          window.location.href = "/";
+        };
+
+        if (!quizId) {
+          statusEl.textContent = "Missing ?id= in URL.";
+          return;
+        }
+
+        idLabel.textContent = `(${quizId})`;
+        idDisplay.textContent = quizId;
+        statusEl.textContent = "Loading quiz...";
+
+        let quiz;
+        try {
+          const res = await fetch(`/api/quiz?id=${encodeURIComponent(quizId)}`);
+          if (!res.ok) throw new Error("API error " + res.status);
+          const data = await res.json();
+          quiz = data.quiz;
+          if (!quiz) throw new Error("Quiz not found");
+        } catch (err) {
+          console.error(err);
+          statusEl.textContent = err.message;
+          return;
+        }
+
+        titleInput.value = quiz.title || "";
+        descInput.value = quiz.description || "";
+        timePerQuestionInput.value = quiz.timeLimitSeconds ?? "";
+        isOpenInput.checked = !!quiz.isOpen;
+        isHiddenInput.checked = !!quiz.isHidden;
+
+        [titleInput, descInput, timePerQuestionInput].forEach((inp) => {
+          inp.addEventListener("input", markDirty);
+          inp.addEventListener("change", markDirty);
+        });
+        isOpenInput.addEventListener("change", markDirty);
+        isHiddenInput.addEventListener("change", markDirty);
+
+        questionsContainer.innerHTML = "";
+        (quiz.questions || []).forEach((q) => {
+          questionsContainer.appendChild(
+            createQuestionBlock(
+              {
+                text: q.text,
+                choices: q.choices,
+                correctIndex: q.correctIndex,
+              },
+              markDirty
+            )
+          );
+        });
+
+        addQuestionBtn.onclick = () => {
+          questionsContainer.appendChild(
+            createQuestionBlock(
+              {
+                text: "",
+                choices: ["", "", "", ""],
+                correctIndex: 0,
+              },
+              markDirty
+            )
+          );
+          markDirty();
+        };
+
+        deleteQuizBtn.onclick = async () => {
+          if (!confirm(`Delete quiz "${quizId}"? This cannot be undone.`))
+            return;
+
+          statusEl.textContent = "Deleting quiz...";
+          try {
+            const res = await fetch(
+              `/api/quiz?id=${encodeURIComponent(quizId)}`,
+              {
+                method: "DELETE",
+              }
+            );
+            if (!res.ok) throw new Error("Delete failed " + res.status);
+            clearDirty();
+            window.location.href = "/admin/";
+          } catch (err) {
+            console.error(err);
+            statusEl.textContent = err.message;
+          }
+        };
+
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          statusEl.textContent = "Saving...";
+
+          const questionBlocks =
+            questionsContainer.querySelectorAll(".question-block");
+          const questions = [];
+          questionBlocks.forEach((block) => {
+            const text = block.querySelector(".q-text").value.trim();
+            const choiceA = block.querySelector(".q-choiceA").value.trim();
+            const choiceB = block.querySelector(".q-choiceB").value.trim();
+            const choiceC = block.querySelector(".q-choiceC").value.trim();
+            const choiceD = block.querySelector(".q-choiceD").value.trim();
+            const correctIndex = parseInt(
+              block.querySelector(".q-correctIndex").value,
+              10
+            );
+
+            if (!text || !choiceA || !choiceB || !choiceC || !choiceD) {
+              return;
+            }
+
+            questions.push({
+              text,
+              choices: [choiceA, choiceB, choiceC, choiceD],
+              correctIndex: isNaN(correctIndex) ? 0 : correctIndex,
+            });
+          });
+
+          const t = timePerQuestionInput.value.trim();
+          const timePerQuestion = t ? Number(t) : null;
+
+          const payload = {
+            quiz: {
+              id: quizId,
+              title: titleInput.value.trim(),
+              description: descInput.value.trim(),
+              timeLimitSeconds: timePerQuestion,
+              isOpen: isOpenInput.checked,
+              isHidden: isHiddenInput.checked,
+              questions,
+            },
+          };
+
+          try {
+            const res = await fetch("/api/quiz", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!res.ok) throw new Error("Save failed " + res.status);
+            statusEl.textContent = "Saved successfully.";
+            clearDirty();
+          } catch (err) {
+            console.error(err);
+            statusEl.textContent = err.message;
+          }
+        };
+
+        statusEl.textContent = "Loaded.";
+        clearDirty();
+      }
+
+      initEditor();
+    </script>
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
