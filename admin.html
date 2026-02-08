@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Admin Homepage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #020617;
+        color: #e5e7eb;
+      }
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 28px;
+        margin-bottom: 8px;
+      }
+      .top-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        font-size: 14px;
+      }
+      .top-bar a {
+        color: #9ca3af;
+        text-decoration: none;
+        margin-right: 12px;
+      }
+      .top-bar a:hover {
+        text-decoration: underline;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: #020617;
+        border-radius: 12px;
+        padding: 16px;
+        border: 1px solid #1f2937;
+      }
+      .quiz-title {
+        font-size: 18px;
+        margin-bottom: 4px;
+      }
+      .quiz-meta {
+        font-size: 13px;
+        color: #9ca3af;
+        margin-bottom: 8px;
+      }
+      .quiz-actions a {
+        font-size: 13px;
+        margin-right: 10px;
+        color: #60a5fa;
+        text-decoration: none;
+      }
+      .quiz-actions a:hover {
+        text-decoration: underline;
+      }
+      .status {
+        margin-top: 12px;
+        font-size: 13px;
+      }
+      .status.error {
+        color: #f97373;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="top-bar">
+        <div>
+          <a href="/">Home</a>
+          <a href="/create/">Create</a>
+        </div>
+        <div>
+          <a href="/logout">Log Out</a>
+        </div>
+      </div>
+
+      <h1>My Quizzes</h1>
+      <p style="font-size: 14px; color: #9ca3af; margin-bottom: 16px">
+        Click Edit to open the editor, or Play to test the quiz.
+      </p>
+
+      <div id="status" class="status"></div>
+      <div id="quiz-grid" class="grid"></div>
+    </div>
+
+    <script>
+      async function loadQuizzes() {
+        const statusEl = document.getElementById("status");
+        const grid = document.getElementById("quiz-grid");
+        statusEl.textContent = "Loading...";
+        grid.innerHTML = "";
+
+        try {
+          const res = await fetch("/api/admin/quizzes", {
+            credentials: "include",
+          });
+          if (res.status === 401) {
+            window.location.href = "/login/";
+            return;
+          }
+          if (!res.ok)
+            throw new Error("Failed to load quizzes " + res.status);
+          const data = await res.json();
+
+          const quizzes = data.quizzes || [];
+          if (!quizzes.length) {
+            statusEl.textContent = "No quizzes yet. Create one first.";
+            return;
+          }
+
+          statusEl.textContent = "";
+          for (const q of quizzes) {
+            const card = document.createElement("div");
+            card.className = "card";
+
+            const title = document.createElement("div");
+            title.className = "quiz-title";
+            title.textContent = q.title || q.id;
+
+            const meta = document.createElement("div");
+            meta.className = "quiz-meta";
+            const perQuestion = q.timeLimitSeconds || "?";
+            const hiddenLabel = q.isHidden ? " • Hidden" : "";
+            const openLabel = q.isOpen ? " • Open" : " • Closed";
+            meta.textContent = `${q.id} • ${
+              q.questionCount ?? "?"
+            } question(s) • ${perQuestion} s / question${openLabel}${hiddenLabel}`;
+
+            const actions = document.createElement("div");
+            actions.className = "quiz-actions";
+            const edit = document.createElement("a");
+            edit.href = "/edit/?id=" + encodeURIComponent(q.id);
+            edit.textContent = "Edit";
+
+            const play = document.createElement("a");
+            play.href = "/quiz/?id=" + encodeURIComponent(q.id);
+            play.textContent = "Play";
+
+            actions.appendChild(edit);
+            actions.appendChild(play);
+
+            card.appendChild(title);
+            card.appendChild(meta);
+            card.appendChild(actions);
+            grid.appendChild(card);
+          }
+        } catch (err) {
+          console.error(err);
+          statusEl.textContent = err.message;
+          statusEl.classList.add("error");
+        }
+      }
+
+      loadQuizzes();
+    </script>
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
