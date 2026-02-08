@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Quiz</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #050816;
+        color: #e5e7eb;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #quiz-view {
+        padding: 24px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+
+      /* Intro screen (full center) */
+      #quiz-intro {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: #050816;
+        z-index: 10;
+      }
+
+      #intro-title {
+        font-size: 32px;
+        font-weight: 800;
+        margin-bottom: 8px;
+      }
+
+      #intro-description {
+        font-size: 14px;
+        color: #9ca3af;
+        margin-bottom: 16px;
+        max-width: 480px;
+      }
+
+      #start-btn {
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: none;
+        background: #3b82f6;
+        color: white;
+        font-size: 15px;
+        cursor: pointer;
+      }
+
+      /* Countdown overlay: hidden by default */
+      #countdown-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(5, 8, 22, 0.95);
+        align-items: center;
+        justify-content: center;
+        font-size: 72px;
+        font-weight: 800;
+        z-index: 50;
+      }
+
+      #countdown-overlay.visible {
+        display: flex;
+      }
+
+      /* Main quiz view */
+      #quiz-header {
+        text-align: center;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #111827;
+      }
+
+      #quiz-title {
+        font-size: 20px;
+        margin: 0 0 4px;
+        color: #e5e7eb;
+      }
+
+      #quiz-description {
+        margin: 0;
+        font-size: 13px;
+        color: #9ca3af;
+      }
+
+      /* Content area between header and footer */
+      #quiz-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #quiz-question-text {
+        font-size: 24px;
+        margin: 16px 0 8px;
+        font-weight: 600;
+      }
+
+      #quiz-main {
+        display: flex;
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      #quiz-timer-panel {
+        width: 80px;
+        min-width: 80px;
+        max-width: 80px;
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: 700;
+        position: relative;
+        color: #e5e7eb;
+      }
+
+      #quiz-timer-label {
+        position: absolute;
+        bottom: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 11px;
+        color: #9ca3af;
+      }
+
+      #quiz-answers-panel {
+        flex: 1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-rows: 1fr;
+        gap: 12px;
+      }
+
+      .quiz-choice-btn {
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+        font-size: 18px;
+        font-weight: 600;
+        color: #f9fafb;
+        padding: 16px 24px;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        transition: background 0.15s ease;
+        min-height: 100px;
+        box-sizing: border-box;
+      }
+
+      .quiz-choice-btn span.shape {
+        width: 22px;
+        height: 22px;
+        display: inline-block;
+        box-sizing: border-box;
+        position: relative;
+        z-index: 2;
+      }
+
+      .quiz-choice-btn span:last-child {
+        display: inline-block;
+        white-space: nowrap;
+      }
+
+      /* Kahoot-like base colours */
+      .choice-0 {
+        background: #ef4444;
+      }
+
+      .choice-1 {
+        background: #2563eb;
+      }
+
+      .choice-2 {
+        background: #eab308;
+        color: #f9fafb;
+      }
+
+      .choice-3 {
+        background: #16a34a;
+      }
+
+      /* Shapes: filled white, triangle slightly larger */
+      .choice-0 span.shape {
+        background: #ffffff;
+        clip-path: polygon(50% 5%, 95% 95%, 5% 95%);
+      }
+
+      .choice-1 span.shape {
+        background: #ffffff;
+        transform: rotate(45deg);
+      }
+
+      .choice-2 span.shape {
+        background: #ffffff;
+        border-radius: 999px;
+      }
+
+      .choice-3 span.shape {
+        background: #ffffff;
+        border-radius: 2px;
+      }
+
+      /* After answer: per-option state (no extra shadow to keep height) */
+      .btn-correct {
+        background: #16a34a !important;
+      }
+
+      .btn-wrong {
+        background: #b91c1c !important;
+      }
+
+      .btn-highlight {
+        outline: 3px solid #22c55e;
+        outline-offset: 0;
+      }
+
+      /* White outline for selected option, using outline not box-shadow */
+      .btn-selected {
+        outline: 3px solid #ffffff;
+        outline-offset: 0;
+      }
+
+      .quiz-choice-btn:disabled {
+        cursor: default;
+        opacity: 0.9;
+      }
+
+      #quiz-feedback {
+        margin-top: 10px;
+        min-height: 20px;
+      }
+
+      #quiz-error {
+        color: #f97373;
+        margin-top: 12px;
+      }
+
+      /* Next button: below answers */
+      #quiz-next-btn {
+        margin-top: 4px;
+        align-self: flex-end;
+        padding: 10px 20px;
+        border-radius: 999px;
+        border: none;
+        background: #3b82f6;
+        color: white;
+        font-size: 15px;
+        cursor: pointer;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      /* Score + streak – top right */
+      #score-text {
+        position: absolute;
+        top: 24px;
+        right: 24px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #ffffff;
+        text-align: right;
+      }
+
+      #streak-text {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        color: #a5b4fc;
+      }
+
+      /* Footer */
+      #quiz-footer {
+        height: 44px;
+        padding: 0 16px;
+        background: #020617;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 13px;
+        color: #e5e7eb;
+        border-top: 1px solid #111827;
+      }
+
+      #quiz-footer-left {
+        min-width: 80px;
+      }
+
+      #quiz-footer-center {
+        text-align: center;
+        flex: 1;
+        font-weight: 500;
+      }
+
+      #quiz-footer-right {
+        min-width: 80px;
+        text-align: right;
+      }
+
+      #fullscreen-btn {
+        background: none;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        padding: 4px 8px;
+        color: #e5e7eb;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      /* Return to home at top-left */
+      #back-btn {
+        position: absolute;
+        top: 24px;
+        left: 24px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: none;
+        background: #111827;
+        color: #e5e7eb;
+        font-size: 13px;
+        cursor: pointer;
+        z-index: 20;
+      }
+
+      /* Final score layout centered between header and footer */
+      #final-score-wrapper {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #final-score-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #final-score-label {
+        font-size: 24px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+
+      #final-score-value {
+        font-size: 56px;
+        font-weight: 800;
+      }
+
+      @media (max-width: 768px) {
+        #quiz-main {
+          flex-direction: column;
+        }
+
+        #quiz-timer-panel {
+          margin: 0 auto 8px;
+        }
+
+        #quiz-answers-panel {
+          grid-template-columns: 1fr;
+          grid-template-rows: repeat(4, auto);
+        }
+
+        #quiz-next-btn {
+          align-self: center;
+        }
+
+        .quiz-choice-btn {
+          min-height: 56px;
+          padding: 12px 16px;
+          gap: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="quiz-view">
+      <!-- Intro screen (centered, shown first) -->
+      <div id="quiz-intro">
+        <h1 id="intro-title">Loading quiz...</h1>
+        <p id="intro-description"></p>
+        <button id="start-btn" class="hidden">Start</button>
+      </div>
+
+      <!-- Actual quiz UI (hidden initially) -->
+      <div id="quiz-header" class="hidden">
+        <h2 id="quiz-title">Loading quiz...</h2>
+        <p id="quiz-description"></p>
+      </div>
+
+      <!-- Content between header and footer -->
+      <div id="quiz-content">
+        <div id="quiz-question-text"></div>
+
+        <div id="quiz-main" class="hidden">
+          <div id="quiz-timer-panel">
+            <span id="quiz-timer">0</span>
+            <span id="quiz-timer-label">seconds</span>
+          </div>
+
+          <div id="quiz-answers-panel">
+            <!-- choices injected here -->
+          </div>
+        </div>
+
+        <p id="quiz-feedback" class="hidden"></p>
+
+        <!-- Score + streak top-right -->
+        <div id="score-text" class="hidden">
+          <span id="score-value">Score: 0</span>
+          <span id="streak-text">Streak: 0</span>
+        </div>
+
+        <button id="quiz-next-btn" class="hidden">Next</button>
+        <button id="back-btn">Home</button>
+
+        <p id="quiz-error"></p>
+      </div>
+    </div>
+
+    <div id="quiz-footer">
+      <div id="quiz-footer-left">
+        <span id="quiz-question-number">Loading Questions...</span>
+      </div>
+      <div id="quiz-footer-center">
+        <span id="quiz-footer-title">Loading Quiz...</span>
+      </div>
+      <div id="quiz-footer-right">
+        <button id="fullscreen-btn">Enter fullscreen</button>
+      </div>
+    </div>
+
+    <!-- Countdown overlay (hidden by default via CSS) -->
+    <div id="countdown-overlay">
+      <span id="countdown-number">3</span>
+    </div>
+
+    <script>
+      function getQuizIdFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("id");
+      }
+
+      async function loadQuiz() {
+        const quizId = getQuizIdFromQuery();
+        const intro = document.getElementById("quiz-intro");
+        const introTitle = document.getElementById("intro-title");
+        const introDesc = document.getElementById("intro-description");
+        const startBtn = document.getElementById("start-btn");
+
+        const header = document.getElementById("quiz-header");
+        const titleEl = document.getElementById("quiz-title");
+        const descEl = document.getElementById("quiz-description");
+        const qNumEl = document.getElementById("quiz-question-number");
+        const timerPanel = document.getElementById("quiz-timer-panel");
+        const timerEl = document.getElementById("quiz-timer");
+        const timerLabelEl = document.getElementById("quiz-timer-label");
+        const qTextEl = document.getElementById("quiz-question-text");
+        const answersPanel = document.getElementById("quiz-answers-panel");
+        const feedbackEl = document.getElementById("quiz-feedback");
+        const nextBtn = document.getElementById("quiz-next-btn");
+        const errorEl = document.getElementById("quiz-error");
+        const backBtn = document.getElementById("back-btn");
+        const footerTitle = document.getElementById("quiz-footer-title");
+        const fullscreenBtn = document.getElementById("fullscreen-btn");
+        const quizMain = document.getElementById("quiz-main");
+        const scoreText = document.getElementById("score-text");
+        const scoreValueEl = document.getElementById("score-value");
+        const streakTextEl = document.getElementById("streak-text");
+
+        const countdownOverlay = document.getElementById("countdown-overlay");
+        const countdownNumber = document.getElementById("countdown-number");
+
+        backBtn.onclick = () => {
+          window.location.href = "/";
+        };
+
+        header.classList.add("hidden");
+        quizMain.classList.add("hidden");
+        feedbackEl.classList.add("hidden");
+        scoreText.classList.add("hidden");
+
+        if (!quizId) {
+          introTitle.textContent = "Quiz not found";
+          introDesc.textContent = "Missing quiz id in URL (?id=...).";
+          return;
+        }
+
+        let quiz;
+        try {
+          const res = await fetch(`/api/quiz?id=${encodeURIComponent(quizId)}`);
+          if (!res.ok) throw new Error("API error: " + res.status);
+          const data = await res.json();
+          quiz = data.quiz;
+          if (!quiz) throw new Error("Quiz not found");
+        } catch (err) {
+          console.error(err);
+          introTitle.textContent = "Error loading quiz";
+          introDesc.textContent = err.message;
+          return;
+        }
+
+        introTitle.textContent = quiz.title || "GenfloSnow Quiz";
+        introDesc.textContent = quiz.description || "";
+        startBtn.classList.remove("hidden");
+
+        titleEl.textContent = quiz.title;
+        descEl.textContent = quiz.description || "";
+        footerTitle.textContent = quiz.title || "GenfloSnow Quiz";
+        errorEl.textContent = "";
+
+        if (Array.isArray(quiz.questions)) {
+          qNumEl.textContent = `1/${quiz.questions.length}`;
+        }
+
+        let currentIndex = 0;
+        let score = 0;
+        let streak = 0;
+        let timerInterval = null;
+        const questionTimeLimit = quiz.timeLimitSeconds || 20;
+        let timeLeft = questionTimeLimit;
+        let questionStartTime = 0;
+        let answered = false;
+
+        function updateScoreText() {
+          scoreValueEl.textContent = "Score: " + score;
+          streakTextEl.textContent = "Streak: " + streak;
+        }
+
+        function updateQuestionNumber() {
+          qNumEl.textContent = `${currentIndex + 1}/${quiz.questions.length}`;
+        }
+
+        function showQuestion() {
+          const q = quiz.questions[currentIndex];
+          answered = false;
+          timeLeft = questionTimeLimit;
+          questionStartTime = Date.now();
+          if (timerInterval) clearInterval(timerInterval);
+
+          qTextEl.textContent = q.text;
+          qTextEl.style.textAlign = "left";
+          answersPanel.innerHTML = "";
+          feedbackEl.textContent = "";
+          feedbackEl.style.color = "";
+          nextBtn.classList.add("hidden");
+
+          timerPanel.style.display = "flex";
+          timerEl.textContent = timeLeft.toString();
+          timerLabelEl.textContent = "seconds";
+
+          q.choices.forEach((choiceText, i) => {
+            const btn = document.createElement("button");
+            btn.className = `quiz-choice-btn choice-${i}`;
+            btn.innerHTML = `<span class="shape"></span><span>${choiceText}</span>`;
+            btn.onclick = () => handleAnswer(i, q.correctIndex);
+            answersPanel.appendChild(btn);
+          });
+
+          updateQuestionNumber();
+
+          timerInterval = setInterval(() => {
+            timeLeft -= 1;
+            if (timeLeft <= 0) {
+              timeLeft = 0;
+              clearInterval(timerInterval);
+              if (!answered) {
+                handleAnswerTimeout(q.correctIndex);
+              }
+            }
+            timerEl.textContent = timeLeft.toString();
+          }, 1000);
+        }
+
+        function markButtons(correctIndex, selectedIndex) {
+          const buttons = answersPanel.querySelectorAll(".quiz-choice-btn");
+          buttons.forEach((btn, idx) => {
+            btn.classList.remove("btn-selected", "btn-correct", "btn-wrong", "btn-highlight");
+
+            if (idx === correctIndex) {
+              btn.classList.add("btn-correct", "btn-highlight");
+            } else {
+              btn.classList.add("btn-wrong");
+            }
+
+            if (idx === selectedIndex) {
+              btn.classList.add("btn-selected");
+            }
+
+            btn.disabled = true;
+          });
+        }
+
+        async function applyScoring(isCorrect, responseSeconds) {
+          try {
+            const res = await fetch("/api/score", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                quizId,
+                questionIndex: currentIndex,
+                isCorrect,
+                responseSeconds
+              })
+            });
+            if (!res.ok) {
+              throw new Error("Scoring error " + res.status);
+            }
+            const data = await res.json();
+            if (!data.ok) {
+              throw new Error(data.error || "Scoring failed");
+            }
+
+            const gained = data.pointsGained || 0;
+            score += gained;
+
+            updateScoreText();
+          } catch (err) {
+            console.error(err);
+          }
+        }
+
+        async function handleAnswer(selectedIndex, correctIndex) {
+          if (answered) return;
+          answered = true;
+          clearInterval(timerInterval);
+
+          const responseSeconds = (Date.now() - questionStartTime) / 1000;
+          const isCorrect = selectedIndex === correctIndex;
+
+          if (isCorrect) {
+            streak += 1;
+          } else {
+            streak = 0;
+          }
+          updateScoreText();
+
+          markButtons(correctIndex, selectedIndex);
+          await applyScoring(isCorrect, responseSeconds);
+
+          nextBtn.classList.remove("hidden");
+        }
+
+        async function handleAnswerTimeout(correctIndex) {
+          if (answered) return;
+          answered = true;
+
+          streak = 0;
+          updateScoreText();
+
+          const buttons = answersPanel.querySelectorAll(".quiz-choice-btn");
+          buttons.forEach((btn, idx) => {
+            btn.classList.remove("btn-selected", "btn-correct", "btn-wrong", "btn-highlight");
+            if (idx === correctIndex) {
+              btn.classList.add("btn-correct", "btn-highlight");
+            } else {
+              btn.classList.add("btn-wrong");
+            }
+            btn.disabled = true;
+          });
+
+          await applyScoring(false, questionTimeLimit);
+          nextBtn.classList.remove("hidden");
+        }
+
+        nextBtn.onclick = () => {
+          currentIndex += 1;
+          if (currentIndex >= quiz.questions.length) {
+            answersPanel.innerHTML = "";
+            nextBtn.classList.add("hidden");
+            if (timerInterval) clearInterval(timerInterval);
+
+            timerPanel.style.display = "none";
+            timerEl.textContent = "";
+            timerLabelEl.textContent = "";
+
+            qTextEl.innerHTML = `
+              <div id="final-score-wrapper">
+                <div id="final-score-container">
+                  <div id="final-score-label">Final Score</div>
+                  <div id="final-score-value">${score}</div>
+                </div>
+              </div>
+            `;
+            qTextEl.style.textAlign = "center";
+          } else {
+            showQuestion();
+          }
+        };
+
+        // Fullscreen: feature detection + graceful fallback
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+        if (isIOS) {
+          // Option A: hide button on iOS because fullscreen isn't reliable there
+          fullscreenBtn.style.display = "none";
+        } else {
+          fullscreenBtn.onclick = async () => {
+            const root = document.documentElement;
+            const requestFS =
+              root.requestFullscreen ||
+              root.webkitRequestFullscreen ||
+              root.msRequestFullscreen;
+            const exitFS =
+              document.exitFullscreen ||
+              document.webkitExitFullscreen ||
+              document.msExitFullscreen;
+
+            if (!requestFS || !exitFS) {
+              alert("Fullscreen is not supported on this device/browser.");
+              return;
+            }
+
+            const isFull =
+              document.fullscreenElement ||
+              document.webkitFullscreenElement ||
+              document.msFullscreenElement;
+
+            try {
+              if (!isFull) {
+                await requestFS.call(root);
+                fullscreenBtn.textContent = "Exit fullscreen";
+              } else {
+                await exitFS.call(document);
+                fullscreenBtn.textContent = "Enter fullscreen";
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          };
+
+          document.addEventListener("fullscreenchange", () => {
+            const isFull =
+              document.fullscreenElement ||
+              document.webkitFullscreenElement ||
+              document.msFullscreenElement;
+
+            fullscreenBtn.textContent = isFull
+              ? "Exit fullscreen"
+              : "Enter fullscreen";
+          });
+        }
+
+        function startCountdownAndQuiz() {
+          if (intro && intro.parentNode) {
+            intro.parentNode.removeChild(intro);
+          }
+
+          countdownOverlay.classList.add("visible");
+          let c = 3;
+          countdownNumber.textContent = c.toString();
+
+          const countdownInterval = setInterval(() => {
+            c -= 1;
+            if (c <= 0) {
+              clearInterval(countdownInterval);
+              countdownOverlay.classList.remove("visible");
+
+              header.classList.remove("hidden");
+              quizMain.classList.remove("hidden");
+              feedbackEl.classList.remove("hidden");
+              scoreText.classList.remove("hidden");
+              updateScoreText();
+              showQuestion();
+            } else {
+              countdownNumber.textContent = c.toString();
+            }
+          }, 1000);
+        }
+
+        startBtn.onclick = () => {
+          startCountdownAndQuiz();
+        };
+      }
+
+      loadQuiz();
+    </script>
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"006eebff4055446c95b8663a9756b495","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
