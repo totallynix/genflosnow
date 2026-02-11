@@ -376,19 +376,37 @@
           margin: 0 auto 8px;
         }
 
+        /* Make answers a 2x2 grid */
         #quiz-answers-panel {
-          grid-template-columns: 1fr;
-          grid-template-rows: repeat(4, auto);
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);  /* 2 columns */
+          grid-auto-rows: 1fr;
+          gap: 8px;
         }
 
         #quiz-next-btn {
           align-self: center;
+          margin-top: 12px;
         }
 
+        /* Force each button to be a square */
         .quiz-choice-btn {
-          min-height: 56px;
-          padding: 12px 14px;
-          gap: 12px;
+          padding: 0;                 /* let the grid control size */
+          min-height: 0;
+          height: auto;
+          aspect-ratio: 1 / 1;        /* square */
+          justify-content: center;
+          text-align: center;
+          font-size: 16px;
+          gap: 8px;
+        }
+
+        .quiz-choice-btn span.shape {
+          margin-bottom: 4px;
+        }
+
+        .quiz-choice-btn span:last-child {
+          white-space: normal;        /* allow text to wrap */
         }
       }
     </style>
