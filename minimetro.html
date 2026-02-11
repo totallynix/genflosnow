@@ -5,13 +5,16 @@
     <title>Mini Metro-ish</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
         padding: 0;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
-        background: #050816;
-        color: #e5e7eb;
+        background: #111215;
+        color: #111827;
         height: 100vh;
         display: flex;
         flex-direction: column;
@@ -19,10 +22,11 @@
       header {
         padding: 8px 16px;
         font-size: 14px;
-        border-bottom: 1px solid #111827;
+        border-bottom: 1px solid #1f2937;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        color: #e5e7eb;
       }
       header a {
         color: #9ca3af;
@@ -35,20 +39,30 @@
       #canvas-wrapper {
         flex: 1;
         position: relative;
+        background: #f4f4ec; /* light map-like background */
       }
       #metro-canvas {
         width: 100%;
         height: 100%;
         display: block;
-        background: #020617;
+      }
+      #hud {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        font-size: 12px;
+        color: #374151;
+        background: rgba(244, 244, 236, 0.8);
+        padding: 4px 8px;
+        border-radius: 6px;
       }
       #hint {
         position: absolute;
-        left: 12px;
-        bottom: 12px;
+        left: 8px;
+        bottom: 8px;
         font-size: 12px;
-        color: #9ca3af;
-        background: rgba(15, 23, 42, 0.9);
+        color: #374151;
+        background: rgba(244, 244, 236, 0.8);
         padding: 6px 8px;
         border-radius: 6px;
       }
@@ -62,8 +76,12 @@
 
     <div id="canvas-wrapper">
       <canvas id="metro-canvas"></canvas>
+      <div id="hud">
+        Lines: <span id="hud-lines">0</span> · Stations:
+        <span id="hud-stations">0</span>
+      </div>
       <div id="hint">
-        Click to add stations. Drag between stations to draw lines.
+        Click to add stations. Drag from one station to another to draw a line.
       </div>
     </div>
 
@@ -71,22 +89,27 @@
       const canvas = document.getElementById("metro-canvas");
       const ctx = canvas.getContext("2d");
 
+      const hudLines = document.getElementById("hud-lines");
+      const hudStations = document.getElementById("hud-stations");
+
       function resizeCanvas() {
         const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * window.devicePixelRatio;
-        canvas.height = rect.height * window.devicePixelRatio;
-        ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
         draw();
       }
 
       window.addEventListener("resize", resizeCanvas);
-      resizeCanvas();
+      // Ensure layout is ready
+      window.addEventListener("load", resizeCanvas);
 
       const stations = []; // { x, y, shape }
-      const lines = [];    // { color, points: [ {x,y}, ... ] }
+      const lines = []; // { color, points: [ {x,y}, ... ] }
 
       const shapes = ["circle", "square", "triangle"];
-      const lineColors = ["#ef4444", "#2563eb", "#eab308", "#16a34a"];
+      const lineColors = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"];
 
       let currentLine = null;
       let draggingFromStation = null;
@@ -95,20 +118,26 @@
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.lineWidth = 3;
-        ctx.strokeStyle = "#f9fafb";
+        ctx.strokeStyle = "#111827";
+        ctx.fillStyle = "#f9fafb";
 
         if (s.shape === "circle") {
           ctx.beginPath();
           ctx.arc(0, 0, 10, 0, Math.PI * 2);
+          ctx.fill();
           ctx.stroke();
         } else if (s.shape === "square") {
-          ctx.strokeRect(-10, -10, 20, 20);
+          ctx.beginPath();
+          ctx.rect(-10, -10, 20, 20);
+          ctx.fill();
+          ctx.stroke();
         } else if (s.shape === "triangle") {
           ctx.beginPath();
           ctx.moveTo(0, -12);
           ctx.lineTo(12, 10);
           ctx.lineTo(-12, 10);
           ctx.closePath();
+          ctx.fill();
           ctx.stroke();
         }
 
@@ -134,7 +163,25 @@
       function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Draw lines
+        const rect = canvas.getBoundingClientRect();
+        ctx.save();
+        ctx.strokeStyle = "#e5e5dc";
+        ctx.lineWidth = 1;
+        const step = 40;
+        for (let x = 0; x < rect.width; x += step) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, rect.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y < rect.height; y += step) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(rect.width, y);
+          ctx.stroke();
+        }
+        ctx.restore();
+
         for (const line of lines) {
           drawLine(line);
         }
@@ -142,17 +189,19 @@
           drawLine(currentLine);
         }
 
-        // Draw stations on top
         for (const s of stations) {
           drawStation(s);
         }
+
+        hudLines.textContent = lines.length;
+        hudStations.textContent = stations.length;
       }
 
       function getMousePos(e) {
         const rect = canvas.getBoundingClientRect();
         return {
-          x: (e.clientX - rect.left),
-          y: (e.clientY - rect.top),
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
         };
       }
 
@@ -166,7 +215,9 @@
       }
 
       canvas.addEventListener("click", (e) => {
-        // Plain click: create station if not near an existing one
+        // ignore click if we just finished a drag
+        if (draggingFromStation || currentLine) return;
+
         const pos = getMousePos(e);
         const existing = findStationAt(pos);
         if (existing) return;
@@ -201,7 +252,6 @@
         const target = findStationAt(pos);
 
         if (target && target !== draggingFromStation) {
-          // finalize line between two stations
           currentLine.points[currentLine.points.length - 1] = {
             x: target.x,
             y: target.y,
@@ -209,6 +259,12 @@
           lines.push(currentLine);
         }
 
+        currentLine = null;
+        draggingFromStation = null;
+        draw();
+      });
+
+      canvas.addEventListener("mouseleave", () => {
         currentLine = null;
         draggingFromStation = null;
         draw();
