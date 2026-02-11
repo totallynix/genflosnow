@@ -39,7 +39,7 @@
       #canvas-wrapper {
         flex: 1;
         position: relative;
-        background: #f4f4ec; /* light map-like background */
+        background: #f4f4ec;
       }
       #metro-canvas {
         width: 100%;
@@ -69,12 +69,97 @@
       #hint {
         position: absolute;
         left: 8px;
-        bottom: 8px;
+        bottom: 32px;
         font-size: 12px;
         color: #374151;
         background: rgba(244, 244, 236, 0.8);
         padding: 6px 8px;
         border-radius: 6px;
+      }
+      #train-inventory {
+        position: absolute;
+        bottom: 4px;
+        left: 8px;
+        display: flex;
+        align-items: center;
+        font-size: 12px;
+        color: #374151;
+        background: rgba(244, 244, 236, 0.9);
+        padding: 4px 8px;
+        border-radius: 999px;
+      }
+      #train-icon {
+        width: 20px;
+        height: 12px;
+        border-radius: 4px;
+        background: #111827;
+        position: relative;
+        margin-right: 4px;
+      }
+      #train-icon::before {
+        content: "";
+        position: absolute;
+        left: 3px;
+        right: 3px;
+        bottom: -3px;
+        height: 3px;
+        border-radius: 999px;
+        background: #374151;
+      }
+      #train-count {
+        position: relative;
+        padding-left: 2px;
+        padding-right: 2px;
+      }
+      #train-count::after {
+        /* small superscript-like bubble */
+        content: attr(data-count);
+        position: absolute;
+        top: -6px;
+        right: -10px;
+        font-size: 9px;
+        background: #ef4444;
+        color: #f9fafb;
+        border-radius: 999px;
+        padding: 1px 3px;
+      }
+      #game-over-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(17, 18, 21, 0.8);
+        color: #e5e7eb;
+        display: none;
+        align-items: center;
+        justify-content: center;
+      }
+      #game-over-panel {
+        background: #111827;
+        border-radius: 12px;
+        padding: 16px 20px;
+        max-width: 320px;
+        width: 90%;
+        font-size: 13px;
+      }
+      #game-over-panel h2 {
+        margin: 0 0 8px 0;
+        font-size: 16px;
+        color: #f9fafb;
+      }
+      #game-over-panel p {
+        margin: 4px 0;
+      }
+      #game-over-panel button {
+        margin-top: 10px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: none;
+        background: #fbbf24;
+        color: #111827;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #game-over-panel button:hover {
+        background: #facc15;
       }
     </style>
   </head>
@@ -97,6 +182,24 @@
         Stations spawn over time. Drag from a station through others to draw a
         line. Trains move automatically and deliver matching shapes.
       </div>
+
+      <div id="train-inventory">
+        <div id="train-icon"></div>
+        <span>Trains</span>
+        <span id="train-count" data-count="0"></span>
+      </div>
+
+      <div id="game-over-overlay">
+        <div id="game-over-panel">
+          <h2>Network Overcrowded</h2>
+          <p id="go-score"></p>
+          <p id="go-time"></p>
+          <p id="go-lines"></p>
+          <p id="go-stations"></p>
+          <p id="go-cause"></p>
+          <button onclick="location.reload()">Restart</button>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -107,13 +210,20 @@
       const hudLines = document.getElementById("hud-lines");
       const hudStations = document.getElementById("hud-stations");
       const hudScore = document.getElementById("hud-score");
+      const trainCountEl = document.getElementById("train-count");
+      const gameOverOverlay = document.getElementById("game-over-overlay");
+      const goScore = document.getElementById("go-score");
+      const goTime = document.getElementById("go-time");
+      const goLines = document.getElementById("go-lines");
+      const goStations = document.getElementById("go-stations");
+      const goCause = document.getElementById("go-cause");
 
       function resizeCanvas() {
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
 
       window.addEventListener("resize", resizeCanvas);
@@ -125,9 +235,9 @@
       });
 
       // ==== GAME STATE ====
-      const stations = []; // { id, x, y, shape, passengers: [{shape}], spawnTimer }
-      const lines = []; // { id, color, stations: [stationId,...], trains: [trainId,...] }
-      const trains = []; // { id, lineId, segmentIndex, t, speed, direction, capacity, passengers: [{shape, destStationId}] }
+      const stations = [];
+      const lines = [];
+      const trains = [];
 
       const stationShapes = [
         { shape: "circle", weight: 5 },
@@ -151,13 +261,26 @@
       let nextTrainId = 1;
       let score = 0;
 
-      // Balancable parameters (not original-game accurate, but reasonable)
-      const STATION_SPAWN_INTERVAL = 8000; // ms between new station spawns
+      // Balancable parameters
+      const STATION_SPAWN_INTERVAL = 8000;
       const PASSENGER_SPAWN_MIN = 3000;
       const PASSENGER_SPAWN_MAX = 7000;
-      const TRAIN_SPEED = 0.2; // segments per second
-      const BOARDING_TIME_PER_PASSENGER = 0.3; // seconds
+      const TRAIN_SPEED = 0.2;
+      const BOARDING_TIME_PER_PASSENGER = 0.3;
       const MAX_PASSENGERS_PER_TRAIN = 6;
+
+      const TRAIN_INVENTORY_INTERVAL = 30000; // ms per extra train
+      const OVERLOAD_THRESHOLD = 10; // passengers
+      const OVERLOAD_SECONDS = 45; // time for pie to fill
+
+      let trainInventory = 1; // start with 1 train available
+      let lastTrainInventoryGain = 0;
+
+      // overcrowding state per station: {timer}
+      const overloadState = new Map();
+      let gameOver = false;
+      let gameStartTime = performance.now();
+      let losingStationId = null;
 
       // ==== HELPERS ====
       function randInRange(min, max) {
@@ -174,12 +297,6 @@
         return "circle";
       }
 
-      function distance(a, b) {
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        return Math.sqrt(dx * dx + dy * dy);
-      }
-
       function findStationById(id) {
         return stations.find((s) => s.id === id) || null;
       }
@@ -194,6 +311,10 @@
           x: a.x + (b.x - a.x) * t,
           y: a.y + (b.y - a.y) * t,
         };
+      }
+
+      function updateTrainInventoryDisplay() {
+        trainCountEl.dataset.count = trainInventory;
       }
 
       // ==== INITIAL GAME SETUP ====
@@ -237,30 +358,29 @@
           shape,
           passengers: [],
           nextPassengerSpawn:
-            performance.now() + randInRange(PASSENGER_SPAWN_MIN, PASSENGER_SPAWN_MAX),
+            performance.now() +
+            randInRange(PASSENGER_SPAWN_MIN, PASSENGER_SPAWN_MAX),
         };
         stations.push(station);
       }
 
       function spawnPassengerAtStation(st) {
         if (stations.length < 2) return;
-
-        // pick destination shape different from this station's shape
         const possibleShapes = stationShapes
           .map((s) => s.shape)
           .filter((sh) => sh !== st.shape);
         const destShape =
           possibleShapes[Math.floor(Math.random() * possibleShapes.length)];
-
         st.passengers.push({ shape: destShape });
       }
 
       function initGame() {
-        // spawn a few initial stations near center
         for (let i = 0; i < 3; i++) {
           spawnStationNearCenter();
         }
         lastStationSpawn = performance.now();
+        lastTrainInventoryGain = performance.now();
+        updateTrainInventoryDisplay();
       }
 
       // ==== LINES & TRAINS ====
@@ -271,26 +391,31 @@
         if (stationIds.length < 2) return null;
         const line = {
           id: nextLineId++,
-          color: lineColors[(lines.length) % lineColors.length],
+          color: lineColors[lines.length % lineColors.length],
           stations: stationIds.slice(),
           trains: [],
         };
         lines.push(line);
 
-        // Place one train on this line initially, direction +1
-        const train = {
-          id: nextTrainId++,
-          lineId: line.id,
-          segmentIndex: 0,
-          t: 0,
-          speed: TRAIN_SPEED,
-          direction: 1,
-          capacity: MAX_PASSENGERS_PER_TRAIN,
-          passengers: [],
-          boardingTimer: 0,
-        };
-        trains.push(train);
-        line.trains.push(train.id);
+        // Place one train only if inventory available
+        if (trainInventory > 0) {
+          const train = {
+            id: nextTrainId++,
+            lineId: line.id,
+            segmentIndex: 0,
+            t: 0,
+            speed: TRAIN_SPEED,
+            direction: 1,
+            capacity: MAX_PASSENGERS_PER_TRAIN,
+            passengers: [],
+            boardingTimer: 0,
+          };
+          trains.push(train);
+          line.trains.push(train.id);
+          trainInventory -= 1;
+          updateTrainInventoryDisplay();
+        }
+
         return line;
       }
 
@@ -298,8 +423,6 @@
         return line.stations.map((id) => findStationById(id)).filter(Boolean);
       }
 
-      // For a given line and current station index + direction,
-      // compute how many stops to each shape in each direction.
       function computeShapeDistances(line, startIndex) {
         const n = line.stations.length;
         if (n === 0) return { forward: {}, backward: {} };
@@ -308,7 +431,6 @@
         const forward = {};
         const backward = {};
 
-        // forward
         for (let step = 1; step < n; step++) {
           const idx = (startIndex + step) % n;
           const st = stationsOnLine[idx];
@@ -317,7 +439,6 @@
           }
         }
 
-        // backward
         for (let step = 1; step < n; step++) {
           const idx = (startIndex - step + n) % n;
           const st = stationsOnLine[idx];
@@ -334,6 +455,16 @@
         ctx.save();
         ctx.translate(station.x, station.y);
         ctx.lineWidth = 3;
+
+        // highlight if this is the losing station
+        if (station.id === losingStationId) {
+          ctx.strokeStyle = "#ef4444";
+          ctx.fillStyle = "#fee2e2";
+          ctx.beginPath();
+          ctx.arc(0, 0, 18, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
         ctx.strokeStyle = "#111827";
         ctx.fillStyle = "#f9fafb";
 
@@ -405,13 +536,11 @@
           }
           ctx.stroke();
 
-          // Draw T caps at ends
           drawLineEndCap(sts[0], sts[1]);
           drawLineEndCap(sts[sts.length - 1], sts[sts.length - 2]);
           ctx.restore();
         }
 
-        // current line preview while dragging
         if (currentLine && currentLine.points.length >= 2) {
           ctx.save();
           ctx.strokeStyle = currentLine.color;
@@ -429,14 +558,12 @@
       }
 
       function drawLineEndCap(A, B) {
-        // A is endpoint, B is next station
         const dx = B.x - A.x;
         const dy = B.y - A.y;
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
         const ux = dx / len;
         const uy = dy / len;
 
-        // T cap: small perpendicular line
         const capLength = 10;
         const px = -uy;
         const py = ux;
@@ -468,6 +595,25 @@
         ctx.restore();
       }
 
+      function drawOverloadPie() {
+        for (const st of stations) {
+          const state = overloadState.get(st.id);
+          if (!state || state.timer <= 0) continue;
+          const ratio = Math.min(1, state.timer / OVERLOAD_SECONDS);
+          const angle = ratio * Math.PI * 2;
+
+          ctx.save();
+          ctx.translate(st.x, st.y);
+          ctx.beginPath();
+          ctx.fillStyle = "rgba(239, 68, 68, 0.7)";
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, 18, -Math.PI / 2, -Math.PI / 2 + angle);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
       function drawTrains() {
         for (const tr of trains) {
           const line = lines.find((l) => l.id === tr.lineId);
@@ -484,7 +630,6 @@
 
           ctx.save();
           ctx.translate(pos.x, pos.y);
-          // direction arrow
           const dx = B.x - A.x;
           const dy = B.y - A.y;
           const ang = Math.atan2(dy, dx);
@@ -498,7 +643,6 @@
           ctx.fill();
           ctx.stroke();
 
-          // simple indicator of passenger count
           ctx.fillStyle = "#fdfdf6";
           ctx.font = "9px system-ui";
           ctx.fillText(String(tr.passengers.length), -3, 3);
@@ -510,7 +654,6 @@
       function render() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // subtle grid
         const rect = canvas.getBoundingClientRect();
         ctx.save();
         ctx.strokeStyle = "#e5e5dc";
@@ -532,15 +675,12 @@
 
         drawLines();
 
-        // stations on top of lines
         for (const st of stations) {
           drawStationShape(st);
         }
 
-        // passengers at stations
+        drawOverloadPie();
         drawPassengers();
-
-        // trains on top
         drawTrains();
 
         hudLines.textContent = lines.length;
@@ -567,13 +707,14 @@
       }
 
       canvas.addEventListener("mousedown", (e) => {
+        if (gameOver) return;
         const pos = getMousePos(e);
         const s = findStationAt(pos);
         if (!s) return;
 
         draggingFromStation = s;
         currentLine = {
-          color: lineColors[(lines.length) % lineColors.length],
+          color: lineColors[lines.length % lineColors.length],
           points: [{ x: s.x, y: s.y }],
           stationIds: [s.id],
         };
@@ -595,7 +736,6 @@
         const pos = getMousePos(e);
         const target = findStationAt(pos);
         if (target && target.id !== draggingFromStation.id) {
-          // Add final station
           currentLine.points[currentLine.points.length - 1] = {
             x: target.x,
             y: target.y,
@@ -618,9 +758,11 @@
       let lastTimestamp = 0;
 
       function update(dt) {
+        if (gameOver) return;
+
         const now = performance.now();
 
-        // Spawn new stations over time
+        // station spawn
         if (now - lastStationSpawn > STATION_SPAWN_INTERVAL) {
           if (stations.length < 6) {
             spawnStationNearCenter();
@@ -630,7 +772,7 @@
           lastStationSpawn = now;
         }
 
-        // Passenger spawning per station
+        // passenger spawn
         for (const st of stations) {
           if (now >= st.nextPassengerSpawn) {
             spawnPassengerAtStation(st);
@@ -639,14 +781,44 @@
           }
         }
 
-        // Train movement + boarding/alighting
+        // train inventory growth
+        if (now - lastTrainInventoryGain > TRAIN_INVENTORY_INTERVAL) {
+          trainInventory += 1;
+          lastTrainInventoryGain = now;
+          updateTrainInventoryDisplay();
+        }
+
+        // overcrowding logic
+        for (const st of stations) {
+          let state = overloadState.get(st.id);
+          const count = st.passengers.length;
+          if (!state) {
+            state = { timer: 0 };
+            overloadState.set(st.id, state);
+          }
+
+          if (count >= OVERLOAD_THRESHOLD) {
+            state.timer += dt;
+            if (state.timer >= OVERLOAD_SECONDS) {
+              losingStationId = st.id;
+              triggerGameOver();
+              break;
+            }
+          } else {
+            if (state.timer > 0) {
+              state.timer -= dt;
+              if (state.timer < 0) state.timer = 0;
+            }
+          }
+        }
+
+        // trains
         for (const tr of trains) {
           const line = lines.find((l) => l.id === tr.lineId);
           if (!line) continue;
           const sts = lineStations(line);
           if (sts.length < 2) continue;
 
-          // Determine current segment endpoints
           const n = sts.length;
           let segIdx = tr.segmentIndex;
           let aIdx = segIdx;
@@ -654,14 +826,12 @@
           let A = sts[aIdx];
           let B = sts[bIdx];
 
-          // Move along segment if not boarding
           if (tr.boardingTimer > 0) {
             tr.boardingTimer -= dt;
             if (tr.boardingTimer < 0) tr.boardingTimer = 0;
           } else {
             tr.t += tr.speed * dt;
             if (tr.t >= 1) {
-              // Arrived at station B
               tr.t = 0;
               tr.segmentIndex = bIdx;
               aIdx = tr.segmentIndex;
@@ -676,28 +846,23 @@
       }
 
       function handleTrainAtStation(tr, line, station) {
-        // 1) Alight passengers whose dest shape matches this station
-        let delivered = 0;
+        // alight
         tr.passengers = tr.passengers.filter((p) => {
           const destStation = stations.find((st) => st.id === p.destStationId);
           if (destStation && destStation.id === station.id) {
             score += 1;
-            delivered += 1;
             return false;
           }
           return true;
         });
 
-        // 2) Board passengers heading in this direction with shortest path
         const sts = lineStations(line);
         const currentIndex = sts.findIndex((st) => st.id === station.id);
         if (currentIndex === -1) return;
 
         const shapeDistances = computeShapeDistances(line, currentIndex);
         const chosenDir = tr.direction === 1 ? "forward" : "backward";
-        const otherDir = tr.direction === 1 ? "backward" : "forward";
 
-        // Determine which passenger shapes at this station prefer this direction
         const newBoarders = [];
         for (let i = 0; i < station.passengers.length; i++) {
           const p = station.passengers[i];
@@ -705,9 +870,7 @@
           const forwardDist = shapeDistances.forward[destShape];
           const backwardDist = shapeDistances.backward[destShape];
 
-          if (forwardDist == null && backwardDist == null) {
-            continue; // no such shape on this line
-          }
+          if (forwardDist == null && backwardDist == null) continue;
 
           const bestDir =
             forwardDist == null
@@ -722,7 +885,6 @@
             bestDir === chosenDir &&
             tr.passengers.length + newBoarders.length < tr.capacity
           ) {
-            // Find an actual destination station with that shape along this direction
             const destId = findDestinationStationIdAlongLine(
               line,
               currentIndex,
@@ -735,7 +897,6 @@
           }
         }
 
-        // Remove boarded from station and add to train
         if (newBoarders.length > 0) {
           for (const b of newBoarders) {
             const idx = station.passengers.indexOf(b.passenger);
@@ -765,9 +926,31 @@
         return null;
       }
 
+      function triggerGameOver() {
+        if (gameOver) return;
+        gameOver = true;
+        gameOverOverlay.style.display = "flex";
+
+        const now = performance.now();
+        const seconds = Math.round((now - gameStartTime) / 1000);
+
+        goScore.textContent = "Passengers delivered: " + score;
+        goTime.textContent = "Time survived: " + seconds + "s";
+        goLines.textContent = "Lines built: " + lines.length;
+        goStations.textContent = "Stations spawned: " + stations.length;
+
+        const st = losingStationId ? findStationById(losingStationId) : null;
+        if (st) {
+          goCause.textContent =
+            "Overcrowded station: " + st.shape + " (" + st.id + ")";
+        } else {
+          goCause.textContent = "Overcrowded station triggered the loss.";
+        }
+      }
+
       // ==== MAIN LOOP ====
       function loop(timestamp) {
-        const dt = (timestamp - lastTimestamp) / 1000; // seconds
+        const dt = (timestamp - lastTimestamp) / 1000;
         lastTimestamp = timestamp;
 
         update(dt);
