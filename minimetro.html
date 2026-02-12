@@ -1131,45 +1131,23 @@
       function update(dt) {
         if (gameOver || paused) return;
         const now = performance.now();
-
+      
+        // spawn stations
         if (now - lastStationSpawn > STATION_SPAWN_INTERVAL) {
           if (stations.length < 6) spawnStationNearCenter();
           else spawnStationFurtherOut();
           lastStationSpawn = now;
         }
-
-        if (tr.dwellQueue.length > 0) {
-          tr.dwellQueue[0].time -= dt;
-          if (tr.dwellQueue[0].time <= 0) {
-            const action = tr.dwellQueue.shift();
-            action.run();
+      
+        // spawn passengers
+        for (const st of stations) {
+          if (now >= st.nextPassengerSpawn) {
+            spawnPassengerAtStation(st);
+            st.nextPassengerSpawn =
+              now + randInRange(PASSENGER_SPAWN_MIN, PASSENGER_SPAWN_MAX);
           }
-          continue;
         }
-        
-        // move along segment, with speed-up / slow-down
-        const line = lines.find((l) => l.id === tr.lineId);
-        if (!line) continue;
-        const sts = lineStations(line);
-        if (sts.length < 2) continue;
-        
-        const n = sts.length;
-        let segIdx = tr.segmentIndex;
-        let aIdx = segIdx;
-        let bIdx = (segIdx + tr.direction + n) % n;
-        let A = sts[aIdx];
-        let B = sts[bIdx];
-        
-        const factor = segmentEase(tr.t); // easing factor
-        tr.t += tr.speed * factor * dt;
-        
-        if (tr.t >= 1) {
-          tr.t = 0;
-          tr.segmentIndex = bIdx;
-          A = sts[tr.segmentIndex];
-          handleTrainAtStation(tr, line, A);
-        }
-
+      
         // train reward popup instead of instant inventory
         if (
           !rewardPending &&
@@ -1180,7 +1158,8 @@
           pauseBtn.classList.add("paused");
           rewardOverlay.style.display = "flex";
         }
-
+      
+        // overload timers
         for (const st of stations) {
           let state = overloadState.get(st.id);
           if (!state) {
@@ -1200,31 +1179,45 @@
             if (state.timer < 0) state.timer = 0;
           }
         }
-
+      
+        // trains: dwell, then move with easing
         for (const tr of trains) {
           if (draggingTrain === tr) continue;
+      
+          // dwell queue: one passenger every 0.2s
+          if (tr.dwellQueue.length > 0) {
+            tr.dwellQueue[0].time -= dt;
+            if (tr.dwellQueue[0].time <= 0) {
+              const action = tr.dwellQueue.shift();
+              action.run();
+            }
+            continue; // still at station
+          }
+      
           const line = lines.find((l) => l.id === tr.lineId);
           if (!line) continue;
           const sts = lineStations(line);
           if (sts.length < 2) continue;
-
+      
           const n = sts.length;
           let segIdx = tr.segmentIndex;
           let aIdx = segIdx;
           let bIdx = (segIdx + tr.direction + n) % n;
           let A = sts[aIdx];
           let B = sts[bIdx];
-
-          if (tr.dwellQueue.length > 0) {
-            tr.dwellQueue[0].time -= dt;
-            if (tr.dwellQueue[0].time <= 0) {
-              const action = tr.dwellQueue.shift();
-              action.run();      // run stored callback (alight or board one passenger)
-            }
-            continue;            // still dwelling
+      
+          const factor = segmentEase(tr.t); // accelerate/slow near stations
+          tr.t += tr.speed * factor * dt;
+      
+          if (tr.t >= 1) {
+            tr.t = 0;
+            tr.segmentIndex = bIdx;
+            A = sts[tr.segmentIndex];
+            handleTrainAtStation(tr, line, A);
           }
         }
       }
+
 
       function handleTrainAtStation(tr, line, station) {
         const dwell = [];
