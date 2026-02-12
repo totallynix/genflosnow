@@ -40,11 +40,24 @@
         flex: 1;
         position: relative;
         background: #f4f4ec;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none; /* disable text selection everywhere in play area */
       }
       #metro-canvas {
         width: 100%;
         height: 100%;
         display: block;
+      }
+      #hud-left,
+      #hud-right,
+      #hint,
+      #train-inventory {
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
       }
       #hud-left {
         position: absolute;
@@ -65,36 +78,12 @@
         background: rgba(244, 244, 236, 0.8);
         padding: 4px 8px;
         border-radius: 6px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
         max-width: 260px;
-      }
-      #pause-btn {
-        border: none;
-        background: #111827;
-        color: #f9fafb;
-        border-radius: 999px;
-        width: 22px;
-        height: 22px;
-        font-size: 12px;
-        cursor: pointer;
-        line-height: 22px;
-        text-align: center;
-      }
-      #pause-btn.paused::before {
-        content: "▶";
-      }
-      #pause-btn:not(.paused)::before {
-        content: "❚❚";
-      }
-      #instructions {
-        font-size: 11px;
       }
       #hint {
         position: absolute;
         left: 8px;
-        bottom: 56px; /* moved up so it doesn't block train bubble */
+        bottom: 56px;
         font-size: 12px;
         color: #374151;
         background: rgba(244, 244, 236, 0.8);
@@ -187,41 +176,6 @@
       #game-over-panel button:hover {
         background: #facc15;
       }
-      /* reward popup */
-      #reward-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(17, 18, 21, 0.6);
-        display: none;
-        align-items: center;
-        justify-content: center;
-      }
-      #reward-panel {
-        background: #111827;
-        color: #f9fafb;
-        border-radius: 12px;
-        padding: 16px 20px;
-        text-align: center;
-        max-width: 260px;
-        font-size: 13px;
-      }
-      #reward-panel-title {
-        font-size: 16px;
-        margin-bottom: 4px;
-      }
-      #reward-claim {
-        margin-top: 10px;
-        padding: 6px 12px;
-        border-radius: 999px;
-        border: none;
-        background: #fbbf24;
-        color: #111827;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      #reward-claim:hover {
-        background: #facc15;
-      }
     </style>
   </head>
   <body>
@@ -232,16 +186,14 @@
 
     <div id="canvas-wrapper">
       <canvas id="metro-canvas"></canvas>
+
       <div id="hud-left">
         Lines: <span id="hud-lines">0</span> · Stations:
         <span id="hud-stations">0</span>
       </div>
       <div id="hud-right">
-        <button id="pause-btn"></button>
-        <div id="instructions">
-          Drag from stations or T-caps to extend lines. Drag trains or the train
-          bubble onto lines to add trains.
-        </div>
+        Drag from stations/T-caps to build lines. Drag trains or the train
+        bubble onto lines.
       </div>
       <div id="hint">
         Deliver passengers to matching shapes. Avoid stations exceeding 10
@@ -252,14 +204,6 @@
         <div id="train-icon"></div>
         <span>Trains</span>
         <span id="train-count" data-count="1"></span>
-      </div>
-
-      <div id="reward-overlay">
-        <div id="reward-panel">
-          <div id="reward-panel-title">New locomotive</div>
-          <div>You have received a new train for your metro.</div>
-          <button id="reward-claim">Claim train</button>
-        </div>
       </div>
 
       <div id="game-over-overlay">
@@ -286,10 +230,6 @@
       const hudScore = document.getElementById("hud-score");
       const trainCountEl = document.getElementById("train-count");
       const trainInventoryEl = document.getElementById("train-inventory");
-      const pauseBtn = document.getElementById("pause-btn");
-
-      const rewardOverlay = document.getElementById("reward-overlay");
-      const rewardClaimBtn = document.getElementById("reward-claim");
 
       const gameOverOverlay = document.getElementById("game-over-overlay");
       const goScore = document.getElementById("go-score");
@@ -352,7 +292,7 @@
       const TRAIN_INVENTORY_INTERVAL = 30000;
       const OVERLOAD_THRESHOLD = 10;
       const OVERLOAD_SECONDS = 45;
-      const MIN_STATION_DISTANCE = 80;
+      const MIN_STATION_DISTANCE = 60; // slightly closer so spawn doesn't stall
 
       let trainInventory = 1;
       let lastTrainInventoryGain = 0;
@@ -361,9 +301,6 @@
       let gameOver = false;
       let gameStartTime = performance.now();
       let losingStationId = null;
-
-      let paused = false;
-      let rewardPending = false;
 
       // dragging
       let draggingTrain = null;
@@ -378,12 +315,12 @@
       function segmentEase(t) {
         const edge = 0.2;
         if (t < edge) {
-          return 0.3 + 0.7 * (t / edge); // accelerate leaving
+          return 0.3 + 0.7 * (t / edge);
         } else if (t > 1 - edge) {
           const u = (1 - t) / edge;
-          return 0.3 + 0.7 * u; // slow down approaching
+          return 0.3 + 0.7 * u;
         }
-        return 1.4; // cruise faster mid-segment
+        return 1.4;
       }
 
       function randInRange(min, max) {
@@ -425,12 +362,6 @@
       function updateTrainInventoryDisplay() {
         trainCountEl.dataset.count = trainInventory;
       }
-
-      pauseBtn.addEventListener("click", () => {
-        if (rewardPending || gameOver) return;
-        paused = !paused;
-        pauseBtn.classList.toggle("paused", paused);
-      });
 
       // ==== INITIAL GAME ====
       let lastStationSpawn = 0;
@@ -677,7 +608,7 @@
         const dx = B.x - A.x;
         const dy = B.y - A.y;
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const capLength = 18;
+        const capLength = 24; // further out than before
         const px = -dy / len;
         const py = dx / len;
 
@@ -806,7 +737,6 @@
           ctx.fill();
           ctx.stroke();
 
-          // 3 x 2 grid of passenger shapes
           const maxShow = Math.min(6, tr.passengers.length);
           const cols = 3;
           const cellW = 6;
@@ -869,7 +799,7 @@
 
         hudLines.textContent = lines.length;
         hudStations.textContent = stations.length;
-        hudScore.textContent = score;
+        hudScore && (hudScore.textContent = score);
       }
 
       // ==== INPUT ====
@@ -958,7 +888,7 @@
 
       // drag from inventory bubble
       wrapper.addEventListener("mousedown", (e) => {
-        if (gameOver || rewardPending) return;
+        if (gameOver) return;
         const target = e.target;
         if (
           (target === trainInventoryEl ||
@@ -972,7 +902,7 @@
       });
 
       canvas.addEventListener("mousedown", (e) => {
-        if (gameOver || rewardPending) return;
+        if (gameOver) return;
         const pos = getMousePos(e);
 
         const hitTrain = findTrainAt(pos);
@@ -1104,33 +1034,29 @@
         render();
       });
 
-      // ==== REWARD POPUP ====
-      rewardClaimBtn.addEventListener("click", () => {
-        if (!rewardPending) return;
-        rewardPending = false;
-        rewardOverlay.style.display = "none";
-        trainInventory += 1;
-        lastTrainInventoryGain = performance.now();
-        updateTrainInventoryDisplay();
-        paused = false;
-        pauseBtn.classList.remove("paused");
-      });
+      // ==== REWARD / EXTRA TRAINS ====
+      // Just auto-gain inventory over time now (no popup)
+      function updateInventoryTimer(now) {
+        if (now - lastTrainInventoryGain > TRAIN_INVENTORY_INTERVAL) {
+          trainInventory += 1;
+          lastTrainInventoryGain = now;
+          updateTrainInventoryDisplay();
+        }
+      }
 
       // ==== SIMULATION ====
       let lastTimestamp = 0;
 
       function update(dt) {
-        if (gameOver || paused) return;
+        if (gameOver) return;
         const now = performance.now();
 
-        // spawn stations
         if (now - lastStationSpawn > STATION_SPAWN_INTERVAL) {
           if (stations.length < 6) spawnStationNearCenter();
           else spawnStationFurtherOut();
           lastStationSpawn = now;
         }
 
-        // spawn passengers
         for (const st of stations) {
           if (now >= st.nextPassengerSpawn) {
             spawnPassengerAtStation(st);
@@ -1139,18 +1065,8 @@
           }
         }
 
-        // train reward popup instead of instant inventory
-        if (
-          !rewardPending &&
-          now - lastTrainInventoryGain > TRAIN_INVENTORY_INTERVAL
-        ) {
-          rewardPending = true;
-          paused = true;
-          pauseBtn.classList.add("paused");
-          rewardOverlay.style.display = "flex";
-        }
+        updateInventoryTimer(now);
 
-        // overload timers
         for (const st of stations) {
           let state = overloadState.get(st.id);
           if (!state) {
@@ -1171,18 +1087,16 @@
           }
         }
 
-        // trains: dwell, then move with easing
         for (const tr of trains) {
           if (draggingTrain === tr) continue;
 
-          // dwell queue: one passenger every 0.2s
           if (tr.dwellQueue.length > 0) {
             tr.dwellQueue[0].time -= dt;
             if (tr.dwellQueue[0].time <= 0) {
               const action = tr.dwellQueue.shift();
               action.run();
             }
-            continue; // still at station
+            continue;
           }
 
           const line = lines.find((l) => l.id === tr.lineId);
@@ -1212,7 +1126,6 @@
       function handleTrainAtStation(tr, line, station) {
         const dwell = [];
 
-        // ALIGHT: one action per passenger who has arrived
         const remaining = [];
         for (const p of tr.passengers) {
           const destStation = stations.find((st) => st.id === p.destStationId);
@@ -1278,7 +1191,6 @@
           }
         }
 
-        // BOARD: one action per passenger up to capacity
         for (const cand of boardCandidates) {
           if (tr.passengers.length >= tr.capacity) break;
           dwell.push({
