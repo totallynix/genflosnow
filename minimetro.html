@@ -65,6 +65,31 @@
         background: rgba(244, 244, 236, 0.8);
         padding: 4px 8px;
         border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 260px;
+      }
+      #pause-btn {
+        border: none;
+        background: #111827;
+        color: #f9fafb;
+        border-radius: 999px;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        cursor: pointer;
+        line-height: 22px;
+        text-align: center;
+      }
+      #pause-btn.paused::before {
+        content: "▶";
+      }
+      #pause-btn:not(.paused)::before {
+        content: "❚❚";
+      }
+      #instructions {
+        font-size: 11px;
       }
       #hint {
         position: absolute;
@@ -161,6 +186,41 @@
       #game-over-panel button:hover {
         background: #facc15;
       }
+      /* reward popup */
+      #reward-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(17, 18, 21, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+      }
+      #reward-panel {
+        background: #111827;
+        color: #f9fafb;
+        border-radius: 12px;
+        padding: 16px 20px;
+        text-align: center;
+        max-width: 260px;
+        font-size: 13px;
+      }
+      #reward-panel-title {
+        font-size: 16px;
+        margin-bottom: 4px;
+      }
+      #reward-claim {
+        margin-top: 10px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: none;
+        background: #fbbf24;
+        color: #111827;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #reward-claim:hover {
+        background: #facc15;
+      }
     </style>
   </head>
   <body>
@@ -176,17 +236,29 @@
         <span id="hud-stations">0</span>
       </div>
       <div id="hud-right">
-        Score: <span id="hud-score">0</span>
+        <button id="pause-btn"></button>
+        <div id="instructions">
+          Drag from stations or T-caps to extend lines. Drag trains or the train
+          bubble onto lines to add trains.
+        </div>
       </div>
       <div id="hint">
-        Drag from stations or T-caps to extend lines. Drag trains or the train
-        bubble onto lines to add trains. Keep stations from overcrowding.
+        Deliver passengers to matching shapes. Avoid stations exceeding 10
+        waiting passengers.
       </div>
 
       <div id="train-inventory">
         <div id="train-icon"></div>
         <span>Trains</span>
         <span id="train-count" data-count="1"></span>
+      </div>
+
+      <div id="reward-overlay">
+        <div id="reward-panel">
+          <div id="reward-panel-title">New locomotive</div>
+          <div>You have received a new train for your metro.</div>
+          <button id="reward-claim">Claim train</button>
+        </div>
       </div>
 
       <div id="game-over-overlay">
@@ -213,6 +285,11 @@
       const hudScore = document.getElementById("hud-score");
       const trainCountEl = document.getElementById("train-count");
       const trainInventoryEl = document.getElementById("train-inventory");
+      const pauseBtn = document.getElementById("pause-btn");
+
+      const rewardOverlay = document.getElementById("reward-overlay");
+      const rewardClaimBtn = document.getElementById("reward-claim");
+
       const gameOverOverlay = document.getElementById("game-over-overlay");
       const goScore = document.getElementById("go-score");
       const goTime = document.getElementById("go-time");
@@ -263,12 +340,15 @@
       let nextTrainId = 1;
       let score = 0;
 
-      const STATION_SPAWN_INTERVAL = 8000;
-      const PASSENGER_SPAWN_MIN = 3000;
-      const PASSENGER_SPAWN_MAX = 7000;
+      // pacing (slower)
+      const STATION_SPAWN_INTERVAL = 12000;
+      const PASSENGER_SPAWN_MIN = 5000;
+      const PASSENGER_SPAWN_MAX = 10000;
+
       const TRAIN_SPEED = 0.2;
       const BOARDING_TIME_PER_PASSENGER = 0.3;
       const MAX_PASSENGERS_PER_TRAIN = 6;
+
       const TRAIN_INVENTORY_INTERVAL = 30000;
       const OVERLOAD_THRESHOLD = 10;
       const OVERLOAD_SECONDS = 45;
@@ -282,7 +362,10 @@
       let gameStartTime = performance.now();
       let losingStationId = null;
 
-      // dragging states
+      let paused = false;
+      let rewardPending = false;
+
+      // dragging
       let draggingTrain = null;
       let draggingInventoryTrain = false;
       let inventoryDragPos = { x: 0, y: 0 };
@@ -292,6 +375,17 @@
       let extendingLine = null; // { lineId, endIndex }
 
       // ==== HELPERS ====
+      function segmentEase(t) {
+        const edge = 0.2; // first and last 20% of segment
+        if (t < edge) {
+          return 0.3 + 0.7 * (t / edge);       // accelerate leaving station
+        } else if (t > 1 - edge) {
+          const u = (1 - t) / edge;
+          return 0.3 + 0.7 * u;                // decelerate approaching station
+        }
+        return 1.4; // cruise faster in the middle
+      }
+
       function randInRange(min, max) {
         return min + Math.random() * (max - min);
       }
@@ -332,6 +426,12 @@
         trainCountEl.dataset.count = trainInventory;
       }
 
+      pauseBtn.addEventListener("click", () => {
+        if (rewardPending || gameOver) return;
+        paused = !paused;
+        pauseBtn.classList.toggle("paused", paused);
+      });
+
       // ==== INITIAL GAME ====
       let lastStationSpawn = 0;
 
@@ -345,8 +445,7 @@
         const cx = width / 2;
         const cy = height / 2;
         const radius = Math.min(width, height) * 0.1;
-
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 40; i++) {
           const angle = Math.random() * Math.PI * 2;
           const r = randInRange(0, radius);
           const x = cx + Math.cos(angle) * r;
@@ -356,13 +455,14 @@
             return;
           }
         }
+        addStation(cx, cy);
       }
 
       function spawnStationFurtherOut() {
         const { width, height } = worldRect();
         const cx = width / 2;
         const cy = height / 2;
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 60; i++) {
           const radius = randInRange(
             Math.min(width, height) * 0.15,
             Math.min(width, height) * 0.45
@@ -375,6 +475,7 @@
             return;
           }
         }
+        addStation(cx, cy);
       }
 
       function addStation(x, y) {
@@ -394,9 +495,14 @@
 
       function spawnPassengerAtStation(st) {
         if (stations.length < 2) return;
-        const possibleShapes = stationShapes
-          .map((s) => s.shape)
-          .filter((sh) => sh !== st.shape);
+
+        // collect currently existing shapes on the map
+        const existingShapes = new Set(stations.map((s) => s.shape));
+        const possibleShapes = Array.from(existingShapes).filter(
+          (shape) => shape !== st.shape
+        );
+        if (!possibleShapes.length) return;
+
         const destShape =
           possibleShapes[Math.floor(Math.random() * possibleShapes.length)];
         st.passengers.push({ shape: destShape });
@@ -435,6 +541,7 @@
           capacity: MAX_PASSENGERS_PER_TRAIN,
           passengers: [],
           boardingTimer: 0,
+          dwellQueue: [],      // NEW: queue of actions at station
         };
         trains.push(train);
         line.trains.push(train.id);
@@ -576,7 +683,7 @@
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
         const ux = dx / len;
         const uy = dy / len;
-        const capLength = 10;
+        const capLength = 18; // further out, more visible
         const px = -uy;
         const py = ux;
 
@@ -705,19 +812,27 @@
           ctx.fill();
           ctx.stroke();
 
+          // 3 x 2 grid of passenger shapes (up to 6)
           const maxShow = Math.min(6, tr.passengers.length);
-          const startX = -10;
-          const step = 6;
-          const y = 0;
+          const cols = 3;
+          const rows = 2;
+          const cellW = 6;
+          const cellH = 6;
+          const startX = -cellW * (cols - 1) * 0.5;
+          const startY = -cellH * 0.5;
           for (let i = 0; i < maxShow; i++) {
             const p = tr.passengers[i];
-            drawPassengerShapeAtOffset(p.shape, startX + i * step, y, 2);
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const x = startX + col * cellW;
+            const y = startY + row * cellH;
+            drawPassengerShapeAtOffset(p.shape, x, y, 2);
           }
 
           ctx.restore();
         }
 
-        // draw ghost train when dragging from inventory
+        // ghost train when dragging from inventory
         if (draggingInventoryTrain) {
           const pos = inventoryDragPos;
           ctx.save();
@@ -849,9 +964,9 @@
         return null;
       }
 
-      // start drag from inventory bubble
+      // drag from inventory bubble
       wrapper.addEventListener("mousedown", (e) => {
-        if (gameOver) return;
+        if (gameOver || rewardPending) return;
         const target = e.target;
         if (
           (target === trainInventoryEl ||
@@ -865,7 +980,7 @@
       });
 
       canvas.addEventListener("mousedown", (e) => {
-        if (gameOver) return;
+        if (gameOver || rewardPending) return;
         const pos = getMousePos(e);
 
         const hitTrain = findTrainAt(pos);
@@ -910,10 +1025,7 @@
           return;
         }
 
-        if (extendingLine) {
-          // visual feedback could be added here if desired
-          return;
-        }
+        if (extendingLine) return;
 
         if (!currentLine) return;
         currentLine.points[currentLine.points.length - 1] = pos;
@@ -1001,11 +1113,23 @@
         render();
       });
 
+      // ==== REWARD POPUP ====
+      rewardClaimBtn.addEventListener("click", () => {
+        if (!rewardPending) return;
+        rewardPending = false;
+        rewardOverlay.style.display = "none";
+        trainInventory += 1;
+        lastTrainInventoryGain = performance.now();
+        updateTrainInventoryDisplay();
+        paused = false;
+        pauseBtn.classList.remove("paused");
+      });
+
       // ==== SIMULATION ====
       let lastTimestamp = 0;
 
       function update(dt) {
-        if (gameOver) return;
+        if (gameOver || paused) return;
         const now = performance.now();
 
         if (now - lastStationSpawn > STATION_SPAWN_INTERVAL) {
@@ -1014,18 +1138,47 @@
           lastStationSpawn = now;
         }
 
-        for (const st of stations) {
-          if (now >= st.nextPassengerSpawn) {
-            spawnPassengerAtStation(st);
-            st.nextPassengerSpawn =
-              now + randInRange(PASSENGER_SPAWN_MIN, PASSENGER_SPAWN_MAX);
+        if (tr.dwellQueue.length > 0) {
+          tr.dwellQueue[0].time -= dt;
+          if (tr.dwellQueue[0].time <= 0) {
+            const action = tr.dwellQueue.shift();
+            action.run();
           }
+          continue;
+        }
+        
+        // move along segment, with speed-up / slow-down
+        const line = lines.find((l) => l.id === tr.lineId);
+        if (!line) continue;
+        const sts = lineStations(line);
+        if (sts.length < 2) continue;
+        
+        const n = sts.length;
+        let segIdx = tr.segmentIndex;
+        let aIdx = segIdx;
+        let bIdx = (segIdx + tr.direction + n) % n;
+        let A = sts[aIdx];
+        let B = sts[bIdx];
+        
+        const factor = segmentEase(tr.t); // easing factor
+        tr.t += tr.speed * factor * dt;
+        
+        if (tr.t >= 1) {
+          tr.t = 0;
+          tr.segmentIndex = bIdx;
+          A = sts[tr.segmentIndex];
+          handleTrainAtStation(tr, line, A);
         }
 
-        if (now - lastTrainInventoryGain > TRAIN_INVENTORY_INTERVAL) {
-          trainInventory += 1;
-          lastTrainInventoryGain = now;
-          updateTrainInventoryDisplay();
+        // train reward popup instead of instant inventory
+        if (
+          !rewardPending &&
+          now - lastTrainInventoryGain > TRAIN_INVENTORY_INTERVAL
+        ) {
+          rewardPending = true;
+          paused = true;
+          pauseBtn.classList.add("paused");
+          rewardOverlay.style.display = "flex";
         }
 
         for (const st of stations) {
@@ -1062,84 +1215,104 @@
           let A = sts[aIdx];
           let B = sts[bIdx];
 
-          if (tr.boardingTimer > 0) {
-            tr.boardingTimer -= dt;
-            if (tr.boardingTimer < 0) tr.boardingTimer = 0;
-          } else {
-            tr.t += tr.speed * dt;
-            if (tr.t >= 1) {
-              tr.t = 0;
-              tr.segmentIndex = bIdx;
-              aIdx = tr.segmentIndex;
-              bIdx = (aIdx + tr.direction + n) % n;
-              A = sts[aIdx];
-              B = sts[bIdx];
-
-              handleTrainAtStation(tr, line, sts[aIdx]);
+          if (tr.dwellQueue.length > 0) {
+            tr.dwellQueue[0].time -= dt;
+            if (tr.dwellQueue[0].time <= 0) {
+              const action = tr.dwellQueue.shift();
+              action.run();      // run stored callback (alight or board one passenger)
             }
+            continue;            // still dwelling
           }
         }
       }
 
       function handleTrainAtStation(tr, line, station) {
-        tr.passengers = tr.passengers.filter((p) => {
+        const dwell = [];
+      
+        // 1) generate per-passenger ALIGHT actions
+        const remaining = [];
+        for (const p of tr.passengers) {
           const destStation = stations.find((st) => st.id === p.destStationId);
           if (destStation && destStation.id === station.id) {
-            score += 1;
-            return false;
+            dwell.push({
+              time: 0.2,
+              run: () => {
+                score += 1;
+              },
+            });
+          } else {
+            remaining.push(p);
           }
-          return true;
-        });
-
+        }
+        tr.passengers = remaining;
+      
+        // 2) determine who should BOARD (same logic as before, but just collect)
         const sts = lineStations(line);
         const currentIndex = sts.findIndex((st) => st.id === station.id);
-        if (currentIndex === -1) return;
-
+        if (currentIndex === -1) {
+          tr.dwellQueue = dwell;
+          return;
+        }
+      
         const shapeDistances = computeShapeDistances(line, currentIndex);
         const chosenDir = tr.direction === 1 ? "forward" : "backward";
-
-        const newBoarders = [];
-        for (let i = 0; i < station.passengers.length; i++) {
-          const p = station.passengers[i];
+      
+        const lineTrains = line.trains
+          .map((id) => trains.find((t) => t.id === id))
+          .filter(Boolean);
+        const hasOppositeTrain = lineTrains.some(
+          (t) => t.direction === (tr.direction === 1 ? -1 : 1)
+        );
+      
+        const boardCandidates = [];
+        for (const p of station.passengers) {
           const destShape = p.shape;
           const forwardDist = shapeDistances.forward[destShape];
           const backwardDist = shapeDistances.backward[destShape];
-
+      
           if (forwardDist == null && backwardDist == null) continue;
-
+      
           let bestDir = null;
           if (forwardDist != null && backwardDist == null) bestDir = "forward";
           else if (backwardDist != null && forwardDist == null)
             bestDir = "backward";
           else bestDir = forwardDist <= backwardDist ? "forward" : "backward";
-
-          if (
-            bestDir === chosenDir &&
-            tr.passengers.length + newBoarders.length < tr.capacity
-          ) {
+      
+          const mayBoard =
+            !hasOppositeTrain
+              ? shapeDistances[chosenDir][destShape] != null
+              : bestDir === chosenDir;
+      
+          if (mayBoard) {
             const destId = findDestinationStationIdAlongLine(
               line,
               currentIndex,
-              bestDir,
+              chosenDir,
               destShape
             );
             if (destId != null) {
-              newBoarders.push({ passenger: p, destStationId: destId });
+              boardCandidates.push({ passenger: p, destStationId: destId });
             }
           }
         }
-
-        if (newBoarders.length > 0) {
-          for (const b of newBoarders) {
-            const idx = station.passengers.indexOf(b.passenger);
-            if (idx !== -1) station.passengers.splice(idx, 1);
-            tr.passengers.push({
-              shape: b.passenger.shape,
-              destStationId: b.destStationId,
-            });
-            tr.boardingTimer += BOARDING_TIME_PER_PASSENGER;
-          }
+      
+        // 3) turn candidates into per-passenger BOARD actions (respect capacity)
+        for (const cand of boardCandidates) {
+          if (tr.passengers.length >= tr.capacity) break;
+          dwell.push({
+            time: 0.2,
+            run: () => {
+              const idx = station.passengers.indexOf(cand.passenger);
+              if (idx !== -1) station.passengers.splice(idx, 1);
+              tr.passengers.push({
+                shape: cand.passenger.shape,
+                destStationId: cand.destStationId,
+              });
+            },
+          });
         }
+      
+        tr.dwellQueue = dwell;
       }
 
       function findDestinationStationIdAlongLine(
