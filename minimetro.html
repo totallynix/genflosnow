@@ -112,7 +112,6 @@
         padding-right: 2px;
       }
       #train-count::after {
-        /* small superscript-like bubble */
         content: attr(data-count);
         position: absolute;
         top: -6px;
@@ -179,14 +178,14 @@
         Score: <span id="hud-score">0</span>
       </div>
       <div id="hint">
-        Stations spawn over time. Drag from a station through others to draw a
-        line. Trains move automatically and deliver matching shapes.
+        Drag from stations or T-caps to extend lines. Drag trains between lines.
+        Keep stations from overcrowding.
       </div>
 
       <div id="train-inventory">
         <div id="train-icon"></div>
         <span>Trains</span>
-        <span id="train-count" data-count="0"></span>
+        <span id="train-count" data-count="1"></span>
       </div>
 
       <div id="game-over-overlay">
@@ -225,7 +224,7 @@
         canvas.height = rect.height * dpr;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
-
+      
       window.addEventListener("resize", resizeCanvas);
       window.addEventListener("load", () => {
         resizeCanvas();
@@ -233,6 +232,14 @@
         lastTimestamp = performance.now();
         requestAnimationFrame(loop);
       });
+
+      function addTrainToLine(lineId) {
+        const line = lines.find(l => l.id === lineId);
+        if (!line) return;
+        if (trainInventory <= 0) return; // no trains available
+      
+        attachNewTrainToLine(line); // reuses existing helper
+      }
 
       // ==== GAME STATE ====
       const stations = [];
@@ -249,9 +256,9 @@
 
       const lineColors = [
         "#e74c3c",
+        "#f1c40f",
         "#3498db",
         "#2ecc71",
-        "#f1c40f",
         "#9b59b6",
         "#ff7f50",
       ];
@@ -261,30 +268,42 @@
       let nextTrainId = 1;
       let score = 0;
 
-      // Balancable parameters
       const STATION_SPAWN_INTERVAL = 8000;
       const PASSENGER_SPAWN_MIN = 3000;
       const PASSENGER_SPAWN_MAX = 7000;
       const TRAIN_SPEED = 0.2;
       const BOARDING_TIME_PER_PASSENGER = 0.3;
       const MAX_PASSENGERS_PER_TRAIN = 6;
+      const TRAIN_INVENTORY_INTERVAL = 30000;
+      const OVERLOAD_THRESHOLD = 10;
+      const OVERLOAD_SECONDS = 45;
+      const MIN_STATION_DISTANCE = 80;
 
-      const TRAIN_INVENTORY_INTERVAL = 30000; // ms per extra train
-      const OVERLOAD_THRESHOLD = 10; // passengers
-      const OVERLOAD_SECONDS = 45; // time for pie to fill
-
-      let trainInventory = 1; // start with 1 train available
+      let trainInventory = 1;
       let lastTrainInventoryGain = 0;
 
-      // overcrowding state per station: {timer}
       const overloadState = new Map();
       let gameOver = false;
       let gameStartTime = performance.now();
       let losingStationId = null;
 
+      // train dragging
+      let draggingTrain = null;
+
+      // line editing
+      let currentLine = null;
+      let draggingFromStation = null;
+      let extendingLine = null; // { lineId, endIndex } while dragging a T/endpoint
+
       // ==== HELPERS ====
       function randInRange(min, max) {
         return min + Math.random() * (max - min);
+      }
+
+      function distance(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return Math.sqrt(dx * dx + dy * dy);
       }
 
       function pickShapeWeighted() {
@@ -317,36 +336,49 @@
         trainCountEl.dataset.count = trainInventory;
       }
 
-      // ==== INITIAL GAME SETUP ====
+      // ==== INITIAL GAME ====
       let lastStationSpawn = 0;
+
+      function isFarFromExistingStations(x, y) {
+        const p = { x, y };
+        return stations.every((s) => distance(s, p) >= MIN_STATION_DISTANCE);
+      }
 
       function spawnStationNearCenter() {
         const { width, height } = worldRect();
         const cx = width / 2;
         const cy = height / 2;
-
         const radius = Math.min(width, height) * 0.1;
-        const angle = Math.random() * Math.PI * 2;
-        const x = cx + Math.cos(angle) * randInRange(0, radius);
-        const y = cy + Math.sin(angle) * randInRange(0, radius);
 
-        addStation(x, y);
+        for (let i = 0; i < 20; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const r = randInRange(0, radius);
+          const x = cx + Math.cos(angle) * r;
+          const y = cy + Math.sin(angle) * r;
+          if (isFarFromExistingStations(x, y)) {
+            addStation(x, y);
+            return;
+          }
+        }
       }
 
       function spawnStationFurtherOut() {
         const { width, height } = worldRect();
         const cx = width / 2;
         const cy = height / 2;
-
-        const radius = randInRange(
-          Math.min(width, height) * 0.15,
-          Math.min(width, height) * 0.45
-        );
-        const angle = Math.random() * Math.PI * 2;
-        const x = cx + Math.cos(angle) * radius;
-        const y = cy + Math.sin(angle) * radius;
-
-        addStation(x, y);
+        for (let i = 0; i < 30; i++) {
+          const radius = randInRange(
+            Math.min(width, height) * 0.15,
+            Math.min(width, height) * 0.45
+          );
+          const angle = Math.random() * Math.PI * 2;
+          const x = cx + Math.cos(angle) * radius;
+          const y = cy + Math.sin(angle) * radius;
+          if (isFarFromExistingStations(x, y)) {
+            addStation(x, y);
+            return;
+          }
+        }
       }
 
       function addStation(x, y) {
@@ -375,18 +407,13 @@
       }
 
       function initGame() {
-        for (let i = 0; i < 3; i++) {
-          spawnStationNearCenter();
-        }
+        for (let i = 0; i < 3; i++) spawnStationNearCenter();
         lastStationSpawn = performance.now();
         lastTrainInventoryGain = performance.now();
         updateTrainInventoryDisplay();
       }
 
       // ==== LINES & TRAINS ====
-      let currentLine = null;
-      let draggingFromStation = null;
-
       function createLineFromStations(stationIds) {
         if (stationIds.length < 2) return null;
         const line = {
@@ -396,27 +423,26 @@
           trains: [],
         };
         lines.push(line);
-
-        // Place one train only if inventory available
-        if (trainInventory > 0) {
-          const train = {
-            id: nextTrainId++,
-            lineId: line.id,
-            segmentIndex: 0,
-            t: 0,
-            speed: TRAIN_SPEED,
-            direction: 1,
-            capacity: MAX_PASSENGERS_PER_TRAIN,
-            passengers: [],
-            boardingTimer: 0,
-          };
-          trains.push(train);
-          line.trains.push(train.id);
-          trainInventory -= 1;
-          updateTrainInventoryDisplay();
-        }
-
+        if (trainInventory > 0) attachNewTrainToLine(line);
         return line;
+      }
+
+      function attachNewTrainToLine(line) {
+        const train = {
+          id: nextTrainId++,
+          lineId: line.id,
+          segmentIndex: 0,
+          t: 0,
+          speed: TRAIN_SPEED,
+          direction: 1,
+          capacity: MAX_PASSENGERS_PER_TRAIN,
+          passengers: [],
+          boardingTimer: 0,
+        };
+        trains.push(train);
+        line.trains.push(train.id);
+        trainInventory -= 1;
+        updateTrainInventoryDisplay();
       }
 
       function lineStations(line) {
@@ -426,27 +452,19 @@
       function computeShapeDistances(line, startIndex) {
         const n = line.stations.length;
         if (n === 0) return { forward: {}, backward: {} };
-
         const stationsOnLine = lineStations(line);
         const forward = {};
         const backward = {};
-
         for (let step = 1; step < n; step++) {
           const idx = (startIndex + step) % n;
           const st = stationsOnLine[idx];
-          if (!(st.shape in forward)) {
-            forward[st.shape] = step;
-          }
+          if (!(st.shape in forward)) forward[st.shape] = step;
         }
-
         for (let step = 1; step < n; step++) {
           const idx = (startIndex - step + n) % n;
           const st = stationsOnLine[idx];
-          if (!(st.shape in backward)) {
-            backward[st.shape] = step;
-          }
+          if (!(st.shape in backward)) backward[st.shape] = step;
         }
-
         return { forward, backward };
       }
 
@@ -456,7 +474,6 @@
         ctx.translate(station.x, station.y);
         ctx.lineWidth = 3;
 
-        // highlight if this is the losing station
         if (station.id === losingStationId) {
           ctx.strokeStyle = "#ef4444";
           ctx.fillStyle = "#fee2e2";
@@ -467,8 +484,8 @@
 
         ctx.strokeStyle = "#111827";
         ctx.fillStyle = "#f9fafb";
-
         const shape = station.shape;
+
         if (shape === "circle") {
           ctx.beginPath();
           ctx.arc(0, 0, 10, 0, Math.PI * 2);
@@ -514,7 +531,6 @@
           ctx.fill();
           ctx.stroke();
         }
-
         ctx.restore();
       }
 
@@ -536,6 +552,7 @@
           }
           ctx.stroke();
 
+          // T caps at both ends for all lines
           drawLineEndCap(sts[0], sts[1]);
           drawLineEndCap(sts[sts.length - 1], sts[sts.length - 2]);
           ctx.restore();
@@ -563,7 +580,6 @@
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
         const ux = dx / len;
         const uy = dy / len;
-
         const capLength = 10;
         const px = -uy;
         const py = ux;
@@ -576,20 +592,16 @@
 
       function drawPassengers() {
         ctx.save();
-        ctx.font = "10px system-ui, sans-serif";
         for (const st of stations) {
           if (!st.passengers.length) continue;
-          let offsetX = -8 * (st.passengers.length - 1) * 0.5;
-          let y = st.y + 18;
-
-          for (const p of st.passengers) {
-            ctx.fillStyle = "#111827";
+          let offsetX = -5 * (st.passengers.length - 1) * 0.5;
+          const y = st.y + 18;
+          ctx.fillStyle = "#111827";
+          for (let i = 0; i < st.passengers.length; i++) {
             ctx.beginPath();
-            ctx.arc(st.x + offsetX, y, 4, 0, Math.PI * 2);
+            ctx.arc(st.x + offsetX, y, 3.5, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = "#f4f4ec";
-            ctx.fillText(p.shape[0].toUpperCase(), st.x + offsetX - 3, y + 3);
-            offsetX += 8;
+            offsetX += 5;
           }
         }
         ctx.restore();
@@ -614,6 +626,57 @@
         }
       }
 
+      function drawPassengerShapeAtOffset(shape, x, y, size) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = "#f4f4ec";
+        ctx.strokeStyle = "#f4f4ec";
+        ctx.lineWidth = 1;
+
+        if (shape === "circle") {
+          ctx.beginPath();
+          ctx.arc(0, 0, size, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (shape === "square") {
+          ctx.beginPath();
+          ctx.rect(-size, -size, size * 2, size * 2);
+          ctx.fill();
+        } else if (shape === "triangle") {
+          ctx.beginPath();
+          ctx.moveTo(0, -size);
+          ctx.lineTo(size, size);
+          ctx.lineTo(-size, size);
+          ctx.closePath();
+          ctx.fill();
+        } else if (shape === "diamond") {
+          ctx.beginPath();
+          ctx.moveTo(0, -size);
+          ctx.lineTo(size, 0);
+          ctx.lineTo(0, size);
+          ctx.lineTo(-size, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else if (shape === "cross") {
+          const s = size * 0.7;
+          ctx.beginPath();
+          ctx.moveTo(-s / 2, -size);
+          ctx.lineTo(s / 2, -size);
+          ctx.lineTo(s / 2, -s / 2);
+          ctx.lineTo(size, -s / 2);
+          ctx.lineTo(size, s / 2);
+          ctx.lineTo(s / 2, s / 2);
+          ctx.lineTo(s / 2, size);
+          ctx.lineTo(-s / 2, size);
+          ctx.lineTo(-s / 2, s / 2);
+          ctx.lineTo(-size, s / 2);
+          ctx.lineTo(-size, -s / 2);
+          ctx.lineTo(-s / 2, -s / 2);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
       function drawTrains() {
         for (const tr of trains) {
           const line = lines.find((l) => l.id === tr.lineId);
@@ -626,7 +689,10 @@
           const bIdx = (segIdx + 1) % sts.length;
           const A = sts[aIdx];
           const B = sts[bIdx];
-          const pos = pointOnSegment(A, B, tr.t);
+          const pos =
+            draggingTrain === tr
+              ? draggingTrain.dragPos
+              : pointOnSegment(A, B, tr.t);
 
           ctx.save();
           ctx.translate(pos.x, pos.y);
@@ -639,13 +705,19 @@
           ctx.strokeStyle = "#fdfdf6";
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.rect(-10, -6, 20, 12);
+          ctx.rect(-14, -7, 28, 14);
           ctx.fill();
           ctx.stroke();
 
-          ctx.fillStyle = "#fdfdf6";
-          ctx.font = "9px system-ui";
-          ctx.fillText(String(tr.passengers.length), -3, 3);
+          // passenger shapes inside train
+          const maxShow = Math.min(6, tr.passengers.length);
+          const startX = -10;
+          const step = 6;
+          const y = 0;
+          for (let i = 0; i < maxShow; i++) {
+            const p = tr.passengers[i];
+            drawPassengerShapeAtOffset(p.shape, startX + i * step, y, 2);
+          }
 
           ctx.restore();
         }
@@ -674,11 +746,7 @@
         ctx.restore();
 
         drawLines();
-
-        for (const st of stations) {
-          drawStationShape(st);
-        }
-
+        for (const st of stations) drawStationShape(st);
         drawOverloadPie();
         drawPassengers();
         drawTrains();
@@ -688,13 +756,10 @@
         hudScore.textContent = score;
       }
 
-      // ==== INPUT (LINES) ====
+      // ==== INPUT ====
       function getMousePos(e) {
         const rect = canvas.getBoundingClientRect();
-        return {
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top,
-        };
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
       }
 
       function findStationAt(pos, radius = 18) {
@@ -706,12 +771,101 @@
         return null;
       }
 
+      function findTrainAt(pos, radius = 12) {
+        for (const tr of trains) {
+          const line = lines.find((l) => l.id === tr.lineId);
+          if (!line) continue;
+          const sts = lineStations(line);
+          if (sts.length < 2) continue;
+          const A = sts[tr.segmentIndex];
+          const B = sts[(tr.segmentIndex + 1) % sts.length];
+          const p = pointOnSegment(A, B, tr.t);
+          const dx = p.x - pos.x;
+          const dy = p.y - pos.y;
+          if (Math.sqrt(dx * dx + dy * dy) <= radius)
+            return { tr, pos: p };
+        }
+        return null;
+      }
+
+      function distancePointToSegment(p, a, b) {
+        const vx = b.x - a.x;
+        const vy = b.y - a.y;
+        const wx = p.x - a.x;
+        const wy = p.y - a.y;
+        const c1 = vx * wx + vy * wy;
+        if (c1 <= 0) return distance(p, a);
+        const c2 = vx * vx + vy * vy;
+        if (c2 <= c1) return distance(p, b);
+        const t = c1 / c2;
+        const proj = { x: a.x + t * vx, y: a.y + t * vy };
+        return distance(p, proj);
+      }
+
+      function findLineNearestPoint(pos, threshold = 10) {
+        let bestLine = null;
+        let bestDist = threshold;
+        for (const line of lines) {
+          const sts = lineStations(line);
+          if (sts.length < 2) continue;
+          for (let i = 0; i < sts.length - 1; i++) {
+            const A = sts[i];
+            const B = sts[i + 1];
+            const dist = distancePointToSegment(pos, A, B);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestLine = line;
+            }
+          }
+        }
+        return bestLine;
+      }
+
+      function findLineEndpointAt(pos, radius = 16) {
+        for (const line of lines) {
+          const sts = lineStations(line);
+          if (sts.length < 2) continue;
+          const endpoints = [
+            { station: sts[0], index: 0 },
+            { station: sts[sts.length - 1], index: sts.length - 1 },
+          ];
+          for (const ep of endpoints) {
+            const dx = ep.station.x - pos.x;
+            const dy = ep.station.y - pos.y;
+            if (Math.sqrt(dx * dx + dy * dy) <= radius) {
+              return { line, endIndex: ep.index };
+            }
+          }
+        }
+        return null;
+      }
+
       canvas.addEventListener("mousedown", (e) => {
         if (gameOver) return;
         const pos = getMousePos(e);
+
+        // drag train?
+        const hitTrain = findTrainAt(pos);
+        if (hitTrain) {
+          draggingTrain = hitTrain.tr;
+          draggingTrain.dragPos = { x: pos.x, y: pos.y };
+          return;
+        }
+
+        // extend existing line via endpoint (T) or station endpoint
+        const endpointHit = findLineEndpointAt(pos);
+        if (endpointHit) {
+          extendingLine = {
+            lineId: endpointHit.line.id,
+            endIndex: endpointHit.endIndex,
+          };
+          return;
+        }
+
         const s = findStationAt(pos);
         if (!s) return;
 
+        // start a new line from this station
         draggingFromStation = s;
         currentLine = {
           color: lineColors[lines.length % lineColors.length],
@@ -721,19 +875,72 @@
       });
 
       canvas.addEventListener("mousemove", (e) => {
-        if (!currentLine) return;
         const pos = getMousePos(e);
+        if (draggingTrain) {
+          draggingTrain.dragPos = { x: pos.x, y: pos.y };
+          render();
+          return;
+        }
+        if (extendingLine) {
+          // just show nothing special; extension is computed on mouseup
+          return;
+        }
+        if (!currentLine) return;
         currentLine.points[currentLine.points.length - 1] = pos;
         render();
       });
 
       canvas.addEventListener("mouseup", (e) => {
+        const pos = getMousePos(e);
+
+        if (draggingTrain) {
+          const line = findLineNearestPoint(pos);
+          if (line) {
+            const oldLine = lines.find((l) => l.id === draggingTrain.lineId);
+            if (oldLine) {
+              oldLine.trains = oldLine.trains.filter(
+                (id) => id !== draggingTrain.id
+              );
+            }
+            draggingTrain.lineId = line.id;
+            draggingTrain.segmentIndex = 0;
+            draggingTrain.t = 0;
+            draggingTrain.boardingTimer = 0;
+            line.trains.push(draggingTrain.id);
+          }
+          draggingTrain = null;
+          render();
+          return;
+        }
+
+        if (extendingLine) {
+          const line = lines.find((l) => l.id === extendingLine.lineId);
+          const sts = lineStations(line);
+          const target = findStationAt(pos);
+          if (target) {
+            const atEnd = extendingLine.endIndex === sts.length - 1;
+            const atStart = extendingLine.endIndex === 0;
+            if (atEnd) {
+              // append if not already last
+              if (line.stations[line.stations.length - 1] !== target.id) {
+                line.stations.push(target.id);
+              }
+            } else if (atStart) {
+              if (line.stations[0] !== target.id) {
+                line.stations.unshift(target.id);
+              }
+            }
+          }
+          extendingLine = null;
+          render();
+          return;
+        }
+
         if (!currentLine || !draggingFromStation) {
           currentLine = null;
           draggingFromStation = null;
           return;
         }
-        const pos = getMousePos(e);
         const target = findStationAt(pos);
         if (target && target.id !== draggingFromStation.id) {
           currentLine.points[currentLine.points.length - 1] = {
@@ -749,30 +956,26 @@
       });
 
       canvas.addEventListener("mouseleave", () => {
+        draggingTrain = null;
+        extendingLine = null;
         currentLine = null;
         draggingFromStation = null;
         render();
       });
 
-      // ==== SIMULATION STEP ====
+      // ==== SIMULATION ====
       let lastTimestamp = 0;
 
       function update(dt) {
         if (gameOver) return;
-
         const now = performance.now();
 
-        // station spawn
         if (now - lastStationSpawn > STATION_SPAWN_INTERVAL) {
-          if (stations.length < 6) {
-            spawnStationNearCenter();
-          } else {
-            spawnStationFurtherOut();
-          }
+          if (stations.length < 6) spawnStationNearCenter();
+          else spawnStationFurtherOut();
           lastStationSpawn = now;
         }
 
-        // passenger spawn
         for (const st of stations) {
           if (now >= st.nextPassengerSpawn) {
             spawnPassengerAtStation(st);
@@ -781,22 +984,19 @@
           }
         }
 
-        // train inventory growth
         if (now - lastTrainInventoryGain > TRAIN_INVENTORY_INTERVAL) {
           trainInventory += 1;
           lastTrainInventoryGain = now;
           updateTrainInventoryDisplay();
         }
 
-        // overcrowding logic
         for (const st of stations) {
           let state = overloadState.get(st.id);
-          const count = st.passengers.length;
           if (!state) {
             state = { timer: 0 };
             overloadState.set(st.id, state);
           }
-
+          const count = st.passengers.length;
           if (count >= OVERLOAD_THRESHOLD) {
             state.timer += dt;
             if (state.timer >= OVERLOAD_SECONDS) {
@@ -804,16 +1004,14 @@
               triggerGameOver();
               break;
             }
-          } else {
-            if (state.timer > 0) {
-              state.timer -= dt;
-              if (state.timer < 0) state.timer = 0;
-            }
+          } else if (state.timer > 0) {
+            state.timer -= dt;
+            if (state.timer < 0) state.timer = 0;
           }
         }
 
-        // trains
         for (const tr of trains) {
+          if (draggingTrain === tr) continue;
           const line = lines.find((l) => l.id === tr.lineId);
           if (!line) continue;
           const sts = lineStations(line);
@@ -846,7 +1044,6 @@
       }
 
       function handleTrainAtStation(tr, line, station) {
-        // alight
         tr.passengers = tr.passengers.filter((p) => {
           const destStation = stations.find((st) => st.id === p.destStationId);
           if (destStation && destStation.id === station.id) {
@@ -872,14 +1069,11 @@
 
           if (forwardDist == null && backwardDist == null) continue;
 
-          const bestDir =
-            forwardDist == null
-              ? "backward"
-              : backwardDist == null
-              ? "forward"
-              : forwardDist <= backwardDist
-              ? "forward"
-              : "backward";
+          let bestDir = null;
+          if (forwardDist != null && backwardDist == null) bestDir = "forward";
+          else if (backwardDist != null && forwardDist == null)
+            bestDir = "backward";
+          else bestDir = forwardDist <= backwardDist ? "forward" : "backward";
 
           if (
             bestDir === chosenDir &&
@@ -938,13 +1132,12 @@
         goTime.textContent = "Time survived: " + seconds + "s";
         goLines.textContent = "Lines built: " + lines.length;
         goStations.textContent = "Stations spawned: " + stations.length;
-
         const st = losingStationId ? findStationById(losingStationId) : null;
         if (st) {
           goCause.textContent =
-            "Overcrowded station: " + st.shape + " (" + st.id + ")";
+            "Overcrowded station shape: " + st.shape + " (id " + st.id + ")";
         } else {
-          goCause.textContent = "Overcrowded station triggered the loss.";
+          goCause.textContent = "A station overcrowded.";
         }
       }
 
@@ -952,10 +1145,8 @@
       function loop(timestamp) {
         const dt = (timestamp - lastTimestamp) / 1000;
         lastTimestamp = timestamp;
-
         update(dt);
         render();
-
         requestAnimationFrame(loop);
       }
     </script>
